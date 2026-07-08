@@ -1,0 +1,21 @@
+[package]
+name = "epd-gdem0097t61"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Neomium GmbH <you@example.com>"]
+description = "A no_std embedded-hal driver for the GDEM0097T61 88x184 monochrome e-paper display"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Neomium/eink-display-gdem0097.git"
+documentation = "https://docs.rs/gdem0097t61"
+readme = "README.md"
+keywords = ["embedded-hal", "e-paper", "eink", "ssd1680", "display"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+[features]
+default = []
+graphics = ["dep:embedded-graphics-core"]
+
+[dependencies]
+embedded-hal = "1.0.0"
+embedded-graphics-core = { version = "0.4", optional = true }
