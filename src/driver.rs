@@ -1,64 +1,3 @@
-// use embedded_hal::{
-//     delay::DelayNs,
-//     digital::{InputPin, OutputPin},
-//     spi::SpiBus,
-// };
-// use core::fmt::Debug;
-// use crate::error::EpdError;
-
-// #[derive(Debug)]
-// pub struct EpdDisplay<SPI, CS, DC, RST, BUSY> {
-//     spi: SPI,
-//     cs: CS,
-//     dc: DC,
-//     rst: RST,
-//     busy: BUSY,
-// }
-
-// impl<SPI, CS, DC, RST, BUSY> EpdDisplay<SPI, CS, DC, RST, BUSY>
-// where
-//     SPI: SpiBus<u8>,
-//     CS: OutputPin,
-//     DC: OutputPin,
-//     RST: OutputPin,
-//     BUSY: InputPin,
-// {
-
-//     pub fn new(spi: SPI, cs: CS, dc: DC, rst: RST, busy: BUSY) -> Self {
-//         Self {
-//             spi,
-//             cs,
-//             dc,
-//             rst,
-//             busy,
-//         }
-//     }
-
-//     pub fn reset<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
-//         self.rst.set_low().map_err(|_| EpdError::Pin)?;
-//         delay.delay_ms(10);
-//         self.rst.set_high().map_err(|_| EpdError::Pin)?;
-//         delay.delay_ms(10);
-//         Ok(())
-//     }
-
-//     pub fn send_command(&mut self, command: u8) -> Result<(), EpdError<SPI::Error>> {
-//         self.dc.set_low().map_err(|_| EpdError::Pin)?;
-//         self.cs.set_low().map_err(|_| EpdError::Pin)?;
-//         self.spi.write(&[command]).map_err(EpdError::Spi)?;
-//         self.cs.set_high().map_err(|_| EpdError::Pin)?;
-//         Ok(())
-//     }
-
-//     pub fn send_data(&mut self, data: &[u8]) -> Result<(), EpdError<SPI::Error>> {
-//         self.dc.set_high().map_err(|_| EpdError::Pin)?;
-//         self.cs.set_low().map_err(|_| EpdError::Pin)?;
-//         self.spi.write(data).map_err(EpdError::Spi)?;
-//         self.cs.set_high().map_err(|_| EpdError::Pin)?;
-//         Ok(())
-//     }
-// }
-
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
@@ -67,10 +6,14 @@ use embedded_hal::{
 
 use crate::{
     command::Command,
-    error::EpdError, 
-    BUFFER_SIZE, HEIGHT, ROW_BYTES,
+    error::EpdError,
+    framebuffer::{BUFFER_SIZE, HEIGHT, ROW_BYTES},
 };
 
+const BUSY_TIMEOUT_MS: u32 = 15_000;
+const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
+
+/// Hardware driver for the GDEM0097T61 e-paper display.
 pub struct EpdDisplay<SPI, CS, DC, RST, BUSY> {
     spi: SPI,
     cs: CS,
@@ -87,8 +30,7 @@ where
     RST: OutputPin,
     BUSY: InputPin,
 {
-
-    /// Creates the display driver and sets CS high so the display is initially deselected
+    /// Creates a display driver and initially deselects the display.
     pub fn new(
         spi: SPI,
         mut cs: CS,
@@ -107,12 +49,12 @@ where
         })
     }
 
-    /// Gives back ownership of SPI and all pins
+    /// Returns ownership of the SPI bus and all control pins.
     pub fn release(self) -> (SPI, CS, DC, RST, BUSY) {
         (self.spi, self.cs, self.dc, self.rst, self.busy)
     }
 
-    /// Resets the display by toggling the RST pin low for 10ms, then high for 10ms
+    /// Performs a hardware reset.
     pub fn reset<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
         self.rst.set_high().map_err(|_| EpdError::Pin)?;
         delay.delay_ms(20);
@@ -126,28 +68,28 @@ where
         Ok(())
     }
 
-    /// Sends the startup/configuration commands needed to prepare the e-paper display
+    /// Initializes the display controller.
     pub fn init<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
         self.reset(delay)?;
 
-        self.send_command(Command::SoftwareReset as u8)?;
-        self.wait_until_idle(delay, 15_000)?;
+        self.send_command(Command::SoftwareReset)?;
+        self.wait_until_idle(delay, BUSY_TIMEOUT_MS)?;
 
-        self.send_command(Command::DriverOutputControl as u8)?;
+        self.send_command(Command::DriverOutputControl)?;
         self.send_data(&[0xB7, 0x00, 0x00])?;
 
-        self.send_command(Command::DataEntryModeSetting as u8)?;
+        self.send_command(Command::DataEntryModeSetting)?;
         self.send_data(&[0x03])?;
 
         self.set_full_ram_window()?;
 
-        self.send_command(Command::BorderWaveformControl as u8)?;
+        self.send_command(Command::BorderWaveformControl)?;
         self.send_data(&[0x05])?;
 
-        self.send_command(Command::TemperatureSensorControl as u8)?;
+        self.send_command(Command::TemperatureSensorControl)?;
         self.send_data(&[0x80])?;
 
-        self.send_command(Command::DisplayUpdateControl1 as u8)?;
+        self.send_command(Command::DisplayUpdateControl1)?;
         self.send_data(&[0x00, 0x80])?;
 
         self.set_ram_cursor(0, 0)?;
@@ -155,7 +97,7 @@ where
         Ok(())
     }
 
-    /// Writes the full framebuffer to display RAM and triggers a full refresh
+    /// Writes the complete framebuffer and performs a full refresh.
     pub fn show_full<D: DelayNs>(
         &mut self,
         buffer: &[u8; BUFFER_SIZE],
@@ -164,81 +106,85 @@ where
         self.set_full_ram_window()?;
         self.set_ram_cursor(0, 0)?;
 
-        self.send_command(Command::WriteRam as u8)?;
-        self.send_data(buffer)?;
-
-        self.set_ram_cursor(0, 0)?;
-        self.send_command(Command::WriteRam as u8)?;
+        self.send_command(Command::WriteRam)?;
         self.send_data(buffer)?;
 
         self.refresh_full(delay)
     }
 
-    /// Puts the display into deep sleep mode to save power. The display can be woken up by toggling the RST pin.
+    /// Puts the display into deep sleep.
+    ///
+    /// The display must be reset before it can be used again.
     pub fn sleep(&mut self) -> Result<(), EpdError<SPI::Error>> {
-        self.send_command(Command::DeepSleepMode as u8)?;
-        self.send_data(&[0x01])?;
-        Ok(())
+        self.send_command(Command::DeepSleepMode)?;
+        self.send_data(&[0x01])
     }
 
-    /// Sends one command byte over SPI with DC low
-    pub fn send_command(&mut self, command: u8) -> Result<(), EpdError<SPI::Error>> {
+    /// Sends one command byte.
+    fn send_command(&mut self, command: Command) -> Result<(), EpdError<SPI::Error>> {
         self.dc.set_low().map_err(|_| EpdError::Pin)?;
         self.cs.set_low().map_err(|_| EpdError::Pin)?;
 
-        self.spi.write(&[command]).map_err(EpdError::Spi)?;
+        let write_result = self.spi.write(&[command as u8]);
+        let deselect_result = self.cs.set_high();
 
-        self.cs.set_high().map_err(|_| EpdError::Pin)?;
+        write_result.map_err(EpdError::Spi)?;
+        deselect_result.map_err(|_| EpdError::Pin)?;
+
         Ok(())
     }
 
-    /// Sends data bytes over SPI with DC high
-    pub fn send_data(&mut self, data: &[u8]) -> Result<(), EpdError<SPI::Error>> {
+    /// Sends data bytes belonging to a command.
+    fn send_data(&mut self, data: &[u8]) -> Result<(), EpdError<SPI::Error>> {
         self.dc.set_high().map_err(|_| EpdError::Pin)?;
         self.cs.set_low().map_err(|_| EpdError::Pin)?;
 
-        self.spi.write(data).map_err(EpdError::Spi)?;
+        let write_result = self.spi.write(data);
+        let deselect_result = self.cs.set_high();
 
-        self.cs.set_high().map_err(|_| EpdError::Pin)?;
+        write_result.map_err(EpdError::Spi)?;
+        deselect_result.map_err(|_| EpdError::Pin)?;
+
         Ok(())
     }
 
-    /// Sends the update command that makes the display physically refresh
+    /// Triggers a complete display refresh.
     fn refresh_full<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
-        self.send_command(Command::DisplayUpdateControl2 as u8)?;
-        self.send_data(&[0xF7])?;
+        self.send_command(Command::DisplayUpdateControl2)?;
+        self.send_data(&[FULL_REFRESH_SEQUENCE])?;
 
-        self.send_command(Command::MasterActivation as u8)?;
+        self.send_command(Command::MasterActivation)?;
 
-        self.wait_until_idle(delay, 15_000)
+        self.wait_until_idle(delay, BUSY_TIMEOUT_MS)
     }
 
-    /// Waits until the BUSY pin says the display is ready, or returns timeout error if it takes too long
+    /// Waits until the display is ready or the timeout is reached.
     fn wait_until_idle<D: DelayNs>(
         &mut self,
         delay: &mut D,
         timeout_ms: u32,
     ) -> Result<(), EpdError<SPI::Error>> {
-        let mut elapsed = 0;
+        let mut elapsed_ms = 0;
 
         while self.busy.is_high().map_err(|_| EpdError::Pin)? {
-            if elapsed >= timeout_ms {
+            if elapsed_ms >= timeout_ms {
                 return Err(EpdError::BusyTimeout);
             }
 
             delay.delay_ms(10);
-            elapsed += 10;
+            elapsed_ms += 10;
         }
 
         Ok(())
     }
 
-    /// Selects the whole display memory area for writing
+    /// Selects the entire display RAM area.
+    #[allow(clippy::cast_possible_truncation)]
     fn set_full_ram_window(&mut self) -> Result<(), EpdError<SPI::Error>> {
-        self.send_command(Command::SetRamXAddressStartEnd as u8)?;
+        self.send_command(Command::SetRamXAddressStartEnd)?;
         self.send_data(&[0, (ROW_BYTES - 1) as u8])?;
 
-        self.send_command(Command::SetRamYAddressStartEnd as u8)?;
+        self.send_command(Command::SetRamYAddressStartEnd)?;
         self.send_data(&[
             0,
             0,
@@ -249,13 +195,17 @@ where
         Ok(())
     }
 
-    /// Sets the current RAM write position inside the display controller
+    /// Sets the display RAM write cursor.
+    #[allow(clippy::cast_possible_truncation)]
     fn set_ram_cursor(&mut self, x_byte: u8, y: u16) -> Result<(), EpdError<SPI::Error>> {
-        self.send_command(Command::SetRamXAddressCounter as u8)?;
+        self.send_command(Command::SetRamXAddressCounter)?;
         self.send_data(&[x_byte])?;
 
-        self.send_command(Command::SetRamYAddressCounter as u8)?;
-        self.send_data(&[(y & 0xFF) as u8, (y >> 8) as u8])?;
+        self.send_command(Command::SetRamYAddressCounter)?;
+        self.send_data(&[
+            (y & 0xFF) as u8,
+            (y >> 8) as u8,
+        ])?;
 
         Ok(())
     }

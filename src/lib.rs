@@ -1,11 +1,10 @@
 #![no_std]
 
 mod command;
+mod driver;
 mod error;
 mod framebuffer;
-mod driver;
 
-pub const WIDTH: usize = 88;
-pub const HEIGHT: usize = 184;
-pub const ROW_BYTES: usize = WIDTH.div_ceil(8);
-pub const BUFFER_SIZE: usize = ROW_BYTES * HEIGHT;
+pub use driver::EpdDisplay;
+pub use error::EpdError;
+pub use framebuffer::{BUFFER_SIZE, FrameBuffer, HEIGHT, ROW_BYTES, WIDTH};

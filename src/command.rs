@@ -1,9 +1,6 @@
 /// Guarantees each command is stored as a u8
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-
-/// They are an enum because all values belong to one logical group: display commands
-/// Command::SoftwareReset is clearer than a loose SOFTWARE_RESET
 pub(crate) enum Command {                
     DriverOutputControl = 0x01,
 

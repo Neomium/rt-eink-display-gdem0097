@@ -1,78 +1,80 @@
-use crate::{
-    command::Command,
-    error::EpdError,
-    driver::EpdDisplay::SPI,
-};
-
+/// Display width in pixels.
 pub const WIDTH: usize = 88;
+
+/// Display height in pixels.
 pub const HEIGHT: usize = 184;
+
+/// Number of bytes required for one row.
 pub const ROW_BYTES: usize = WIDTH.div_ceil(8);
+
+/// Total framebuffer size in bytes.
 pub const BUFFER_SIZE: usize = ROW_BYTES * HEIGHT;
 
-const WHITE: bool = true;
-const BLACK: bool = false;
-
+/// One-bit-per-pixel framebuffer for the GDEM0097T61 display.
+///
+/// A cleared bit represents black.
+/// A set bit represents white.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrameBuffer {
     data: [u8; BUFFER_SIZE],
 }
 
 impl FrameBuffer {
-    /// Creates a new framebuffer with all pixels set to white
+    /// Creates a framebuffer with every pixel set to white.
     pub const fn new() -> Self {
         Self {
             data: [0xFF; BUFFER_SIZE],
         }
     }
 
-    /// Clears the framebuffer to all white or all black
+    /// Fills the complete framebuffer with white or black.
     pub fn clear(&mut self, white: bool) {
         self.data.fill(if white { 0xFF } else { 0x00 });
     }
 
-    /// Returns a reference to the framebuffer data as a byte slice
-    pub fn as_bytes(&self) -> &[u8] {
+    /// Returns the raw framebuffer bytes.
+    pub fn as_bytes(&self) -> &[u8; BUFFER_SIZE] {
         &self.data
     }
 
-    /// Sets a pixel in the framebuffer to black or white. Does nothing if the coordinates are out of bounds.
+    /// Sets one pixel to black or white.
+    ///
+    /// Coordinates outside the display are ignored.
     pub fn set_pixel(&mut self, x: usize, y: usize, black: bool) {
         if x >= WIDTH || y >= HEIGHT {
             return;
         }
 
-        let index = y * ROW_BYTES + x / 8;
-        let bit = 7 - (x % 8);
+        let byte_index = y * ROW_BYTES + x / 8;
+        let bit_index = 7 - (x % 8);
+        let mask = 1u8 << bit_index;
 
         if black {
-            self.data[index] &= !(1 << bit);
+            self.data[byte_index] &= !mask;
         } else {
-            self.data[index] |= 1 << bit;
+            self.data[byte_index] |= mask;
         }
     }
 
-    /// Gets the color of a pixel in the framebuffer. Returns true for white, false for black. Returns None if out of bounds.
-    pub fn show_full<D: DelayNs>(
-        &mut self,
-        buffer: &[u8; BUFFER_SIZE],
-        delay: &mut D,
-    ) -> Result<(), EpdError<SPI::Error>> {
-            self.set_full_ram_window()?;
-            self.set_ram_cursor(0, 0)?;
+    /// Returns `Some(true)` when the pixel is black.
+    ///
+    /// Returns `Some(false)` when the pixel is white.
+    /// Returns `None` when the coordinates are outside the display.
+    pub fn is_black(&self, x: usize, y: usize) -> Option<bool> {
+        if x >= WIDTH || y >= HEIGHT {
+            return None;
+        }
 
-            self.send_command(Command::WriteRam as u8)?;
-            self.send_data(buffer)?;
+        let byte_index = y * ROW_BYTES + x / 8;
+        let bit_index = 7 - (x % 8);
+        let mask = 1u8 << bit_index;
 
-            self.set_ram_cursor(0, 0)?;
-            self.send_command(Command::WriteVcomRam as u8)?;
-            self.send_data(buffer)?;
-
-            self.refresh_full(delay)
+        Some(self.data[byte_index] & mask == 0)
     }
+}
 
-    /// Puts the display into deep sleep mode to save power. The display can be woken up by toggling the RST pin.
-    pub fn sleep(&mut self) -> Result<(), EpdError<SPI::Error>> {
-        self.send_command(Command::DeepSleep as u8)?;
-        self.send_data(&[0x01])?;
-        Ok(())
+impl Default for FrameBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }

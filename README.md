@@ -5,7 +5,6 @@ The crate supports:
 init display
 clear display
 draw full frame buffer
-partial update
 sleep
 reset
 basic black/white buffer drawing helpers
