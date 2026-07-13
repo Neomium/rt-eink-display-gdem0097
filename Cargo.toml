@@ -8,7 +8,7 @@ description = "A no_std embedded-hal driver for the GDEM0097T61 88x184 monochrom
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Neomium/eink-display-gdem0097.git"
 readme = "README.md"
-keywords = ["embedded-hal", "e-paper", "eink", "ssd1680", "display"]
+keywords = ["embedded-hal", "e-paper", "eink", "display"]
 categories = ["embedded", "hardware-support", "no-std"]
 
 [features]
