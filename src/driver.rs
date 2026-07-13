@@ -10,8 +10,22 @@ use crate::{
     framebuffer::{BUFFER_SIZE, HEIGHT, ROW_BYTES},
 };
 
-const BUSY_TIMEOUT_MS: u32 = 15_000;
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
+
+/// Controller is busy for at most 15 seconds.
+const BUSY_TIMEOUT_MS: u32 = 15_000;
+
+/// Data entry mode: increment X and Y after each byte written.
+const DATA_ENTRY_MODE: u8 = 0x03;
+
+/// Border waveform configuration recommended by the display datasheet.
+const BORDER_WAVEFORM: u8 = 0x05;
+
+/// Use the built-in temperature sensor.
+const TEMPERATURE_SENSOR_INTERNAL: u8 = 0x80;
+
+/// Display update configuration used during initialization.
+const DISPLAY_UPDATE_CONTROL1: [u8; 2] = [0x00, 0x80];
 
 /// Hardware driver for the GDEM0097T61 e-paper display.
 pub struct EpdDisplay<SPI, CS, DC, RST, BUSY> {
@@ -79,18 +93,18 @@ where
         self.send_data(&[0xB7, 0x00, 0x00])?;
 
         self.send_command(Command::DataEntryModeSetting)?;
-        self.send_data(&[0x03])?;
+        self.send_data(&[DATA_ENTRY_MODE])?;
 
         self.set_full_ram_window()?;
 
         self.send_command(Command::BorderWaveformControl)?;
-        self.send_data(&[0x05])?;
+        self.send_data(&[BORDER_WAVEFORM])?;
 
         self.send_command(Command::TemperatureSensorControl)?;
-        self.send_data(&[0x80])?;
+        self.send_data(&[TEMPERATURE_SENSOR_INTERNAL])?;
 
         self.send_command(Command::DisplayUpdateControl1)?;
-        self.send_data(&[0x00, 0x80])?;
+        self.send_data(&DISPLAY_UPDATE_CONTROL1)?;
 
         self.set_ram_cursor(0, 0)?;
 

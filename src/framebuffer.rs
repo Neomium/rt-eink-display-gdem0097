@@ -10,6 +10,21 @@ pub const ROW_BYTES: usize = WIDTH.div_ceil(8);
 /// Total framebuffer size in bytes.
 pub const BUFFER_SIZE: usize = ROW_BYTES * HEIGHT;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Color {
+    Black,
+    White,
+}
+
+impl Color {
+    const fn fill_byte(self) -> u8 {
+        match self {
+            Self::Black => 0x00,
+            Self::White => 0xFF,
+        }
+    }
+}
+
 /// One-bit-per-pixel framebuffer for the GDEM0097T61 display.
 ///
 /// A cleared bit represents black.
@@ -28,8 +43,8 @@ impl FrameBuffer {
     }
 
     /// Fills the complete framebuffer with white or black.
-    pub fn clear(&mut self, white: bool) {
-        self.data.fill(if white { 0xFF } else { 0x00 });
+    pub fn clear(&mut self, color: Color) {
+        self.data.fill(color.fill_byte());
     }
 
     /// Returns the raw framebuffer bytes.
@@ -40,7 +55,7 @@ impl FrameBuffer {
     /// Sets one pixel to black or white.
     ///
     /// Coordinates outside the display are ignored.
-    pub fn set_pixel(&mut self, x: usize, y: usize, black: bool) {
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
         if x >= WIDTH || y >= HEIGHT {
             return;
         }
@@ -49,18 +64,16 @@ impl FrameBuffer {
         let bit_index = 7 - (x % 8);
         let mask = 1u8 << bit_index;
 
-        if black {
-            self.data[byte_index] &= !mask;
-        } else {
-            self.data[byte_index] |= mask;
+        match color {
+            Color::Black => self.data[byte_index] &= !mask,
+            Color::White => self.data[byte_index] |= mask,
         }
     }
 
-    /// Returns `Some(true)` when the pixel is black.
+    /// Returns the colour of one pixel.
     ///
-    /// Returns `Some(false)` when the pixel is white.
     /// Returns `None` when the coordinates are outside the display.
-    pub fn is_black(&self, x: usize, y: usize) -> Option<bool> {
+      pub fn pixel(&self, x: usize, y: usize) -> Option<Color> {
         if x >= WIDTH || y >= HEIGHT {
             return None;
         }
@@ -69,7 +82,11 @@ impl FrameBuffer {
         let bit_index = 7 - (x % 8);
         let mask = 1u8 << bit_index;
 
-        Some(self.data[byte_index] & mask == 0)
+        if self.data[byte_index] & mask == 0 {
+            Some(Color::Black)
+        } else {
+            Some(Color::White)
+        }
     }
 }
 
