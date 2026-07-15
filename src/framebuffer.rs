@@ -80,6 +80,7 @@ pub struct FrameBuffer {
 
 impl FrameBuffer {
     /// Creates a framebuffer with every pixel set to white.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             data: [0xFF; BUFFER_SIZE],
@@ -92,6 +93,7 @@ impl FrameBuffer {
     }
 
     /// Returns the raw framebuffer bytes.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8; BUFFER_SIZE] {
         &self.data
     }
@@ -117,6 +119,7 @@ impl FrameBuffer {
     /// Returns the colour of one pixel.
     ///
     /// Returns `None` when the coordinates are outside the display.
+    #[must_use]
     pub fn pixel(&self, x: usize, y: usize) -> Option<Color> {
         if x >= WIDTH || y >= HEIGHT {
             return None;

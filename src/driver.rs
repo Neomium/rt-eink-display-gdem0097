@@ -30,29 +30,35 @@ const TEMPERATURE_SENSOR_INTERNAL: u8 = 0x80;
 const DISPLAY_UPDATE_CONTROL1: [u8; 2] = [0x00, 0x80];
 
 /// Hardware driver for the GDEM0097T61 e-paper display.
-pub struct EpdDisplay<SPI, CS, DC, RST, BUSY> {
+pub struct EpdDisplay<SPI, CS, DC, RST, BUSY, DELAY> {
     spi: SPI,
     cs: CS,
     dc: DC,
     rst: RST,
     busy: BUSY,
+    delay: DELAY,
 }
 
-impl<SPI, CS, DC, RST, BUSY> EpdDisplay<SPI, CS, DC, RST, BUSY>
+impl<SPI, CS, DC, RST, BUSY, DELAY> EpdDisplay<SPI, CS, DC, RST, BUSY, DELAY>
 where
     SPI: SpiBus<u8>,
     CS: OutputPin,
     DC: OutputPin,
     RST: OutputPin,
     BUSY: InputPin,
+    DELAY: DelayNs,
 {
     /// Creates a display driver and initially deselects the display.
+    /// # Errors
+    ///
+    /// Returns [`EpdError::Pin`] if the chip-select pin cannot be set high.
     pub fn new(
         spi: SPI,
         mut cs: CS,
         dc: DC,
         rst: RST,
         busy: BUSY,
+        delay: DELAY,
     ) -> Result<Self, EpdError<SPI::Error>> {
         cs.set_high().map_err(|_| EpdError::Pin)?;
 
@@ -62,34 +68,35 @@ where
             dc,
             rst,
             busy,
+            delay,
         })
     }
 
     /// Returns ownership of the SPI bus and all control pins.
-    pub fn release(self) -> (SPI, CS, DC, RST, BUSY) {
-        (self.spi, self.cs, self.dc, self.rst, self.busy)
+    pub fn release(self) -> (SPI, CS, DC, RST, BUSY, DELAY) {
+        (self.spi, self.cs, self.dc, self.rst, self.busy, self.delay)
     }
 
     /// Performs a hardware reset.
-    pub fn reset<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
+    pub fn reset(&mut self) -> Result<(), EpdError<SPI::Error>> {
         self.rst.set_high().map_err(|_| EpdError::Pin)?;
-        delay.delay_ms(20);
+        self.delay.delay_ms(20);
 
         self.rst.set_low().map_err(|_| EpdError::Pin)?;
-        delay.delay_ms(10);
+        self.delay.delay_ms(10);
 
         self.rst.set_high().map_err(|_| EpdError::Pin)?;
-        delay.delay_ms(20);
+        self.delay.delay_ms(20);
 
         Ok(())
     }
 
     /// Initializes the display controller.
-    pub fn init<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
-        self.reset(delay)?;
+    pub fn init(&mut self) -> Result<(), EpdError<SPI::Error>> {
+        self.reset()?;
 
         self.send_command(Command::SoftwareReset)?;
-        self.wait_until_idle(delay, BUSY_TIMEOUT_MS)?;
+        self.wait_until_idle(BUSY_TIMEOUT_MS)?;
 
         self.send_command(Command::DriverOutputControl)?;
         self.send_data(&[0xB7, 0x00, 0x00])?;
@@ -114,26 +121,21 @@ where
     }
 
     /// Writes the complete framebuffer and performs a full refresh.
-    pub fn show_full<D: DelayNs>(
-        &mut self,
-        buffer: &[u8; BUFFER_SIZE],
-        delay: &mut D,
-    ) -> Result<(), EpdError<SPI::Error>> {
+    pub fn show_full(&mut self, buffer: &[u8; BUFFER_SIZE]) -> Result<(), EpdError<SPI::Error>> {
         self.set_full_ram_window()?;
         self.set_ram_cursor(0, 0)?;
 
         self.send_command(Command::WriteRam)?;
         self.send_data(buffer)?;
 
-        self.refresh_full(delay)
+        self.refresh_full()
     }
 
     /// Writes one byte-aligned framebuffer region and performs a partial refresh.
-    pub fn show_partial<D: DelayNs>(
+    pub fn show_partial(
         &mut self,
         framebuffer: &FrameBuffer,
         region: Region,
-        delay: &mut D,
     ) -> Result<(), EpdError<SPI::Error>> {
         self.validate_region(region)?;
         self.set_partial_ram_window(region)?;
@@ -144,7 +146,7 @@ where
 
         self.set_ram_cursor(x_byte, y)?;
         self.write_partial_ram(framebuffer, region)?;
-        self.refresh_partial(delay)
+        self.refresh_partial()
     }
 
     /// Puts the display into deep sleep.
@@ -184,31 +186,27 @@ where
     }
 
     /// Triggers a complete display refresh.
-    fn refresh_full<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
+    fn refresh_full(&mut self) -> Result<(), EpdError<SPI::Error>> {
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[FULL_REFRESH_SEQUENCE])?;
 
         self.send_command(Command::MasterActivation)?;
 
-        self.wait_until_idle(delay, BUSY_TIMEOUT_MS)
+        self.wait_until_idle(BUSY_TIMEOUT_MS)
     }
 
     /// Triggers a partial display refresh.
-    fn refresh_partial<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
+    fn refresh_partial(&mut self) -> Result<(), EpdError<SPI::Error>> {
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[PARTIAL_REFRESH_CONTROL])?;
 
         self.send_command(Command::MasterActivation)?;
 
-        self.wait_until_idle(delay, BUSY_TIMEOUT_MS)
+        self.wait_until_idle(BUSY_TIMEOUT_MS)
     }
 
     /// Waits until the display is ready or the timeout is reached.
-    fn wait_until_idle<D: DelayNs>(
-        &mut self,
-        delay: &mut D,
-        timeout_ms: u32,
-    ) -> Result<(), EpdError<SPI::Error>> {
+    fn wait_until_idle(&mut self, timeout_ms: u32) -> Result<(), EpdError<SPI::Error>> {
         let mut elapsed_ms = 0;
 
         while self.busy.is_high().map_err(|_| EpdError::Pin)? {
@@ -216,7 +214,7 @@ where
                 return Err(EpdError::BusyTimeout);
             }
 
-            delay.delay_ms(10);
+            self.delay.delay_ms(10);
             elapsed_ms += 10;
         }
 
