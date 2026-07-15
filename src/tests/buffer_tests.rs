@@ -1,5 +1,7 @@
-use epd_gdem0097t61::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, WIDTH};
+use epd_gdem0097t61::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, WIDTH, Region};
 
+mod framebuffer_tests {
+    use super::*;
 #[test]
 fn display_dimensions_and_buffer_size_are_correct() {
     assert_eq!(WIDTH, 88);
@@ -78,4 +80,40 @@ fn out_of_bounds_coordinates_are_ignored() {
     assert_eq!(framebuffer, original);
     assert_eq!(framebuffer.pixel(WIDTH, 0), None);
     assert_eq!(framebuffer.pixel(0, HEIGHT), None);
+}
+}
+
+mod region_tests {
+    use super::*;
+
+    #[test]
+    fn region_stores_the_provided_values() {
+        let region = Region::new(16, 20, 32, 10);
+
+        assert_eq!(region.x, 16);
+        assert_eq!(region.y, 20);
+        assert_eq!(region.width, 32);
+        assert_eq!(region.height, 10);
+    }
+
+    #[test]
+    fn region_end_coordinates_are_correct() {
+        let region = Region::new(16, 20, 32, 10);
+
+        assert_eq!(region.x_end(), Some(48));
+        assert_eq!(region.y_end(), Some(30));
+    }
+
+    #[test]
+    fn region_end_returns_none_on_overflow() {
+        let region = Region::new(
+            usize::MAX,
+            usize::MAX,
+            1,
+            1,
+        );
+
+        assert_eq!(region.x_end(), None);
+        assert_eq!(region.y_end(), None);
+    }
 }

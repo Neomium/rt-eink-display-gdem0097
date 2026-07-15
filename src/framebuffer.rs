@@ -25,6 +25,50 @@ impl Color {
     }
 }
 
+/// A rectangular area of the display.
+///
+/// The X coordinate and width must be aligned to complete bytes,
+/// meaning both must be divisible by 8.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Region {
+    /// Horizontal start coordinate in pixels.
+    pub x: usize,
+
+    /// Vertical start coordinate in pixels.
+    pub y: usize,
+
+    /// Region width in pixels.
+    pub width: usize,
+
+    /// Region height in pixels.
+    pub height: usize,
+}
+
+impl Region {
+    /// Creates a rectangular display region.
+    #[must_use]
+    pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// Returns the horizontal end coordinate, excluding that coordinate.
+    #[must_use]
+    pub const fn x_end(self) -> Option<usize> {
+        self.x.checked_add(self.width)
+    }
+
+    /// Returns the vertical end coordinate, excluding that coordinate.
+    #[must_use]
+    pub const fn y_end(self) -> Option<usize> {
+        self.y.checked_add(self.height)
+    }
+}
+
 /// One-bit-per-pixel framebuffer for the GDEM0097T61 display.
 ///
 /// A cleared bit represents black.
@@ -73,7 +117,7 @@ impl FrameBuffer {
     /// Returns the colour of one pixel.
     ///
     /// Returns `None` when the coordinates are outside the display.
-      pub fn pixel(&self, x: usize, y: usize) -> Option<Color> {
+    pub fn pixel(&self, x: usize, y: usize) -> Option<Color> {
         if x >= WIDTH || y >= HEIGHT {
             return None;
         }

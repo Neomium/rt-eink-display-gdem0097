@@ -7,4 +7,4 @@ mod framebuffer;
 
 pub use driver::EpdDisplay;
 pub use error::EpdError;
-pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, WIDTH};
+pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH};

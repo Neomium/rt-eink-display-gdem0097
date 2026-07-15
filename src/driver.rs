@@ -7,10 +7,12 @@ use embedded_hal::{
 use crate::{
     command::Command,
     error::EpdError,
-    framebuffer::{BUFFER_SIZE, HEIGHT, ROW_BYTES},
+    framebuffer::{BUFFER_SIZE, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH},
 };
 
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
+
+const PARTIAL_REFRESH_CONTROL: u8 = 0xFF;
 
 /// Controller is busy for at most 15 seconds.
 const BUSY_TIMEOUT_MS: u32 = 15_000;
@@ -126,6 +128,25 @@ where
         self.refresh_full(delay)
     }
 
+    /// Writes one byte-aligned framebuffer region and performs a partial refresh.
+    pub fn show_partial<D: DelayNs>(
+        &mut self,
+        framebuffer: &FrameBuffer,
+        region: Region,
+        delay: &mut D,
+    ) -> Result<(), EpdError<SPI::Error>> {
+        self.validate_region(region)?;
+        self.set_partial_ram_window(region)?;
+
+        let x_byte = u8::try_from(region.x / 8).map_err(|_| EpdError::InvalidRegion)?;
+
+        let y = u16::try_from(region.y).map_err(|_| EpdError::InvalidRegion)?;
+
+        self.set_ram_cursor(x_byte, y)?;
+        self.write_partial_ram(framebuffer, region)?;
+        self.refresh_partial(delay)
+    }
+
     /// Puts the display into deep sleep.
     ///
     /// The display must be reset before it can be used again.
@@ -172,6 +193,16 @@ where
         self.wait_until_idle(delay, BUSY_TIMEOUT_MS)
     }
 
+    /// Triggers a partial display refresh.
+    fn refresh_partial<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), EpdError<SPI::Error>> {
+        self.send_command(Command::DisplayUpdateControl2)?;
+        self.send_data(&[PARTIAL_REFRESH_CONTROL])?;
+
+        self.send_command(Command::MasterActivation)?;
+
+        self.wait_until_idle(delay, BUSY_TIMEOUT_MS)
+    }
+
     /// Waits until the display is ready or the timeout is reached.
     fn wait_until_idle<D: DelayNs>(
         &mut self,
@@ -192,6 +223,31 @@ where
         Ok(())
     }
 
+    /// Validates a partial-update region.
+    fn validate_region(&self, region: Region) -> Result<(), EpdError<SPI::Error>> {
+        if region.width == 0 || region.height == 0 {
+            return Err(EpdError::InvalidRegion);
+        }
+
+        let Some(x_end) = region.x.checked_add(region.width) else {
+            return Err(EpdError::InvalidRegion);
+        };
+
+        let Some(y_end) = region.y.checked_add(region.height) else {
+            return Err(EpdError::InvalidRegion);
+        };
+
+        if x_end > WIDTH || y_end > HEIGHT {
+            return Err(EpdError::InvalidRegion);
+        }
+
+        if region.x % 8 != 0 || region.width % 8 != 0 {
+            return Err(EpdError::UnalignedRegion);
+        }
+
+        Ok(())
+    }
+
     /// Selects the entire display RAM area.
     #[allow(clippy::cast_possible_truncation)]
     fn set_full_ram_window(&mut self) -> Result<(), EpdError<SPI::Error>> {
@@ -199,12 +255,52 @@ where
         self.send_data(&[0, (ROW_BYTES - 1) as u8])?;
 
         self.send_command(Command::SetRamYAddressStartEnd)?;
+        self.send_data(&[0, 0, ((HEIGHT - 1) & 0xFF) as u8, ((HEIGHT - 1) >> 8) as u8])?;
+
+        Ok(())
+    }
+
+    /// Selects a byte-aligned rectangular RAM area.
+    #[allow(clippy::cast_possible_truncation)]
+    fn set_partial_ram_window(&mut self, region: Region) -> Result<(), EpdError<SPI::Error>> {
+        let x_start_byte = region.x / 8;
+        let x_end_byte = (region.x + region.width) / 8 - 1;
+
+        let y_start = region.y;
+        let y_end = region.y + region.height - 1;
+
+        self.send_command(Command::SetRamXAddressStartEnd)?;
+        self.send_data(&[x_start_byte as u8, x_end_byte as u8])?;
+
+        self.send_command(Command::SetRamYAddressStartEnd)?;
         self.send_data(&[
-            0,
-            0,
-            ((HEIGHT - 1) & 0xFF) as u8,
-            ((HEIGHT - 1) >> 8) as u8,
+            (y_start & 0xFF) as u8,
+            (y_start >> 8) as u8,
+            (y_end & 0xFF) as u8,
+            (y_end >> 8) as u8,
         ])?;
+
+        Ok(())
+    }
+
+    /// Writes only the framebuffer bytes belonging to a region.
+    fn write_partial_ram(
+        &mut self,
+        framebuffer: &FrameBuffer,
+        region: Region,
+    ) -> Result<(), EpdError<SPI::Error>> {
+        let start_byte = region.x / 8;
+        let bytes_per_row = region.width / 8;
+        let framebuffer_bytes = framebuffer.as_bytes();
+
+        self.send_command(Command::WriteRam)?;
+
+        for y in region.y..region.y + region.height {
+            let row_start = y * ROW_BYTES + start_byte;
+            let row_end = row_start + bytes_per_row;
+
+            self.send_data(&framebuffer_bytes[row_start..row_end])?;
+        }
 
         Ok(())
     }
@@ -216,10 +312,7 @@ where
         self.send_data(&[x_byte])?;
 
         self.send_command(Command::SetRamYAddressCounter)?;
-        self.send_data(&[
-            (y & 0xFF) as u8,
-            (y >> 8) as u8,
-        ])?;
+        self.send_data(&[(y & 0xFF) as u8, (y >> 8) as u8])?;
 
         Ok(())
     }

@@ -10,4 +10,6 @@ pub enum EpdError<SpiError> {
     Spi(SpiError),
     Pin,
     BusyTimeout,
+    InvalidRegion,
+    UnalignedRegion,
 }

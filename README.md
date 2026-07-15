@@ -12,11 +12,9 @@ This crate provides a lightweight, synchronous interface for initializing the di
 - Built on `embedded-hal` 1.0
 - Hardware-independent
 - Full display refresh
+- Partial display refresh
 - 1-bit framebuffer implementation
-- Pixel-level drawing API
 - Deep sleep support
-- No dynamic memory allocation
-
 ---
 
 ## Supported Hardware
@@ -71,6 +69,23 @@ display.show_full(framebuffer.as_bytes(), &mut delay)?;
 display.sleep()?;
 ```
 
+Partial Display Example:
+
+```rust
+    use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer, Region};
+
+    let mut framebuffer = FrameBuffer::new();
+
+    framebuffer.set_pixel(16, 20, Color::Black);
+
+    let region = Region::new(16, 16, 32, 24);
+
+    display.show_partial(
+        &framebuffer,
+        region,
+        &mut delay,
+    )?;
+```
 ---
 
 ## Framebuffer
@@ -87,7 +102,7 @@ The framebuffer size is:
 2024 bytes
 ```
 
-Example:
+<!-- Example:
 
 ```rust
 let mut framebuffer = FrameBuffer::new();
@@ -96,7 +111,7 @@ framebuffer.clear(Color::White);
 
 framebuffer.set_pixel(0, 0, Color::Black);
 framebuffer.set_pixel(20, 30, Color::Black);
-```
+``` -->
 
 ---
 
