@@ -8,3 +8,6 @@ mod framebuffer;
 pub use driver::EpdDisplay;
 pub use error::EpdError;
 pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH};
+
+#[cfg(test)]
+mod tests;
