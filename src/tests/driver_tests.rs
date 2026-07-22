@@ -1,9 +1,7 @@
-use core::convert::Infallible;
-
 use embedded_hal::{
     delay::DelayNs,
-    digital::ErrorType as DigitalErrorType,
-    spi::{ErrorType as SpiErrorType, SpiBus},
+    digital::{Error as DigitalError, ErrorKind as DigitalErrorKind, ErrorType as DigitalErrorType},
+    spi::{Error as SpiError, ErrorKind as SpiErrorKind, ErrorType as SpiErrorType, SpiBus},
 };
 use mockall::{mock, predicate::eq, Sequence};
 
@@ -26,21 +24,42 @@ const SET_RAM_X_CURSOR: u8 = 0x4E;
 const SET_RAM_Y_CURSOR: u8 = 0x4F;
 const DEEP_SLEEP: u8 = 0x10;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TestSpiError {
+    WriteFailed,
+}
+
+impl SpiError for TestSpiError {
+    fn kind(&self) -> SpiErrorKind {
+        SpiErrorKind::Other
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TestPinError {
+    SetHighFailed,
+}
+
+impl DigitalError for TestPinError {
+    fn kind(&self) -> DigitalErrorKind {
+        DigitalErrorKind::Other
+    }
+}
 
 #[cfg(test)]
 mock! {
     Spi {}
 
     impl SpiErrorType for Spi {
-        type Error = Infallible;
+        type Error = TestSpiError;
     }
 
     impl SpiBus<u8> for Spi {
-        fn read(&mut self, words: &mut [u8]) -> Result<(), Infallible>;
-        fn write(&mut self, words: &[u8]) -> Result<(), Infallible>;
-        fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Infallible>;
-        fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Infallible>;
-        fn flush(&mut self) -> Result<(), Infallible>;
+        fn read(&mut self, words: &mut [u8]) -> Result<(), TestSpiError>;
+        fn write(&mut self, words: &[u8]) -> Result<(), TestSpiError>;
+        fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), TestSpiError>;
+        fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), TestSpiError>;
+        fn flush(&mut self) -> Result<(), TestSpiError>;
     }
 }
 
@@ -48,12 +67,12 @@ mock! {
     OutputPin {}
 
     impl DigitalErrorType for OutputPin {
-        type Error = Infallible;
+        type Error = TestPinError;
     }
 
     impl embedded_hal::digital::OutputPin for OutputPin {
-        fn set_low(&mut self) -> Result<(), Infallible>;
-        fn set_high(&mut self) -> Result<(), Infallible>;
+        fn set_low(&mut self) -> Result<(), TestPinError>;
+        fn set_high(&mut self) -> Result<(), TestPinError>;
     }
 }
 
@@ -61,12 +80,12 @@ mock! {
     InputPin {}
 
     impl DigitalErrorType for InputPin {
-        type Error = Infallible;
+        type Error = TestPinError;
     }
 
     impl embedded_hal::digital::InputPin for InputPin {
-        fn is_high(&mut self) -> Result<bool, Infallible>;
-        fn is_low(&mut self) -> Result<bool, Infallible>;
+        fn is_high(&mut self) -> Result<bool, TestPinError>;
+        fn is_low(&mut self) -> Result<bool, TestPinError>;
     }
 }
 
@@ -330,6 +349,8 @@ fn out_of_bounds_and_overflowing_partial_regions_are_rejected() {
     let regions = [
         Region::new(88, 0, 8, 8),
         Region::new(0, 184, 8, 8),
+        Region::new(80, 0, 16, 8),
+        Region::new(0, 183, 8, 2),
         Region::new(usize::MAX, 0, 8, 8),
         Region::new(0, usize::MAX, 8, 8),
     ];
@@ -439,3 +460,4 @@ fn busy_remaining_high_returns_busy_timeout() {
 
     assert!(matches!(error, EpdError::BusyTimeout));
 }
+
