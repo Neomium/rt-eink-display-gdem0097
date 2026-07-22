@@ -1,8 +1,5 @@
 use crate::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH};
 
-
-#[cfg(test)]
-
 #[test]
 fn display_dimensions_and_buffer_size_are_correct() {
     assert_eq!(WIDTH, 88);
@@ -47,6 +44,19 @@ fn set_pixel_changes_only_the_requested_pixel() {
 }
 
 #[test]
+fn setting_multiple_pixels_in_the_same_byte_preserves_existing_pixels() {
+    let mut framebuffer = FrameBuffer::new();
+
+    framebuffer.set_pixel(0, 0, Color::Black);
+    framebuffer.set_pixel(3, 0, Color::Black);
+
+    assert_eq!(framebuffer.pixel(0, 0), Some(Color::Black));
+    assert_eq!(framebuffer.pixel(3, 0), Some(Color::Black));
+    assert_eq!(framebuffer.pixel(1, 0), Some(Color::White));
+    assert_eq!(framebuffer.as_bytes()[0], 0b0110_1111);
+}
+
+#[test]
 fn pixels_are_mapped_across_byte_boundaries_correctly() {
     let mut framebuffer = FrameBuffer::new();
 
@@ -57,6 +67,18 @@ fn pixels_are_mapped_across_byte_boundaries_correctly() {
     assert_eq!(framebuffer.as_bytes()[1], 0b0111_1111);
     assert_eq!(framebuffer.pixel(7, 0), Some(Color::Black));
     assert_eq!(framebuffer.pixel(8, 0), Some(Color::Black));
+}
+
+#[test]
+fn pixels_are_stored_in_the_correct_rows() {
+    let mut framebuffer = FrameBuffer::new();
+
+    framebuffer.set_pixel(0, 1, Color::Black);
+
+    assert_eq!(framebuffer.as_bytes()[0], 0xFF);
+    assert_eq!(framebuffer.as_bytes()[ROW_BYTES], 0b0111_1111);
+    assert_eq!(framebuffer.pixel(0, 0), Some(Color::White));
+    assert_eq!(framebuffer.pixel(0, 1), Some(Color::Black));
 }
 
 #[test]
@@ -84,6 +106,19 @@ fn out_of_bounds_coordinates_are_ignored() {
 }
 
 #[test]
+fn extreme_out_of_bounds_coordinates_are_ignored() {
+    let mut framebuffer = FrameBuffer::new();
+    let original = framebuffer.clone();
+
+    framebuffer.set_pixel(usize::MAX, 0, Color::Black);
+    framebuffer.set_pixel(0, usize::MAX, Color::Black);
+
+    assert_eq!(framebuffer, original);
+    assert_eq!(framebuffer.pixel(usize::MAX, 0), None);
+    assert_eq!(framebuffer.pixel(0, usize::MAX), None);
+}
+
+#[test]
 fn region_stores_the_provided_values() {
     let region = Region::new(16, 20, 32, 10);
 
@@ -108,3 +143,8 @@ fn region_end_returns_none_on_overflow() {
     assert_eq!(region.x_end(), None);
     assert_eq!(region.y_end(), None);
 }
+
+
+
+
+
