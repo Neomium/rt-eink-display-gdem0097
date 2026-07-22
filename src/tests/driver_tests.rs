@@ -9,7 +9,7 @@ use mockall::{mock, predicate::eq, Sequence};
 
 use std::{vec, vec::Vec};
 
-use crate::{BUFFER_SIZE, Color, EpdDisplay, FrameBuffer};
+use crate::{BUFFER_SIZE, Color, EpdDisplay, EpdError, FrameBuffer, Region};
 
 const SOFTWARE_RESET: u8 = 0x12;
 const DRIVER_OUTPUT_CONTROL: u8 = 0x01;
@@ -132,15 +132,15 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
         match *transfer_kind {
             TransferKind::Data => {
                 dc.expect_set_high()
-                        .times(1)
-                        .in_sequence(&mut dc_sequence)
-                        .returning(|| Ok(()));
+                    .times(1)
+                    .in_sequence(&mut dc_sequence)
+                    .returning(|| Ok(()));
             }
             TransferKind::Command => {
                 dc.expect_set_low()
-                        .times(1)
-                        .in_sequence(&mut dc_sequence)
-                        .returning(|| Ok(()));
+                    .times(1)
+                    .in_sequence(&mut dc_sequence)
+                    .returning(|| Ok(()));
             }
         }
     }
@@ -269,3 +269,173 @@ fn show_full_writes_the_entire_framebuffer_and_triggers_full_refresh() {
         .expect("full refresh should succeed");
 }
 
+#[test]
+fn show_partial_writes_only_the_requested_rows_and_bytes() {
+    let mut framebuffer = FrameBuffer::new();
+    framebuffer.clear(Color::Black);
+    let region = Region::new(8, 2, 16, 2);
+
+    let writes: &[&[u8]] = &[
+        &[SET_RAM_X_WINDOW],
+        &[0x01, 0x02],
+        &[SET_RAM_Y_WINDOW],
+        &[0x02, 0x00, 0x03, 0x00],
+        &[SET_RAM_X_CURSOR],
+        &[0x01],
+        &[SET_RAM_Y_CURSOR],
+        &[0x02, 0x00],
+        &[WRITE_RAM],
+        &[0x00, 0x00],
+        &[0x00, 0x00],
+        &[DISPLAY_UPDATE_CONTROL_2],
+        &[0xFF],
+        &[MASTER_ACTIVATION],
+    ];
+    let kinds = [
+        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Data, TransferKind::Command,
+        TransferKind::Data, TransferKind::Command,
+    ];
+    let mut parts = mock_parts(writes, &kinds);
+    parts.busy.expect_is_high().times(1).returning(|| Ok(false));
+    let mut display = make_display(parts); 
+
+    display
+        .show_partial(&framebuffer, region)
+        .expect("partial refresh should succeed");
+}
+
+#[test]
+fn sleep_sends_the_deep_sleep_command_and_check_code() {
+    let writes: &[&[u8]] = &[&[DEEP_SLEEP], &[0x01]];
+    let kinds = [TransferKind::Command, TransferKind::Data];
+    let mut display = make_display(mock_parts(writes, &kinds));
+
+    display.sleep().expect("sleep should succeed");
+}
+
+#[test]
+fn zero_sized_partial_regions_are_rejected_without_hardware_access() {
+    for region in [Region::new(0, 0, 0, 8), Region::new(0, 0, 8, 0)] {
+        let mut display = make_display(mock_parts(&[], &[]));
+        let error = display
+            .show_partial(&FrameBuffer::new(), region)
+            .expect_err("zero-sized region must fail");
+
+        assert!(matches!(error, EpdError::InvalidRegion));
+    }
+}
+
+#[test]
+fn out_of_bounds_and_overflowing_partial_regions_are_rejected() {
+    let regions = [
+        Region::new(88, 0, 8, 8),
+        Region::new(0, 184, 8, 8),
+        Region::new(usize::MAX, 0, 8, 8),
+        Region::new(0, usize::MAX, 8, 8),
+    ];
+
+    for region in regions {
+        let mut display = make_display(mock_parts(&[], &[]));
+        let error = display
+            .show_partial(&FrameBuffer::new(), region)
+            .expect_err("out-of-bounds region must fail");
+
+        assert!(matches!(error, EpdError::InvalidRegion));
+    }
+}
+
+#[test]
+fn non_byte_aligned_partial_regions_are_rejected() {
+    for region in [Region::new(1, 0, 8, 8), Region::new(0, 0, 7, 8)] {
+        let mut display = make_display(mock_parts(&[], &[]));
+        let error = display
+            .show_partial(&FrameBuffer::new(), region)
+            .expect_err("unaligned region must fail");
+
+        assert!(matches!(error, EpdError::UnalignedRegion));
+    }
+}
+
+#[test]
+fn busy_pin_is_polled_until_the_display_becomes_idle() {
+    let framebuffer = [0xFF; BUFFER_SIZE];
+    let writes: Vec<&[u8]> = vec![
+        &[SET_RAM_X_WINDOW],
+        &[0x00, 0x0A],
+        &[SET_RAM_Y_WINDOW],
+        &[0x00, 0x00, 0xB7, 0x00],
+        &[SET_RAM_X_CURSOR],
+        &[0x00],
+        &[SET_RAM_Y_CURSOR],
+        &[0x00, 0x00],
+        &[WRITE_RAM],
+        &framebuffer,
+        &[DISPLAY_UPDATE_CONTROL_2],
+        &[0xF7],
+        &[MASTER_ACTIVATION],
+    ];
+    let kinds = [
+        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data,
+        TransferKind::Command,
+    ];
+    let mut parts = mock_parts(&writes, &kinds);
+
+    let mut busy_sequence = Sequence::new();
+    parts
+        .busy
+        .expect_is_high()
+        .times(1)
+        .in_sequence(&mut busy_sequence)
+        .returning(|| Ok(true));
+    parts
+        .busy
+        .expect_is_high()
+        .times(1)
+        .in_sequence(&mut busy_sequence)
+        .returning(|| Ok(false));
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(10_000_000))
+        .times(1)
+        .return_const(());
+
+    let mut display = make_display(parts);
+    display
+        .show_full(&framebuffer)
+        .expect("display should become idle after one poll delay");
+}
+
+#[test]
+fn busy_remaining_high_returns_busy_timeout() {
+    let framebuffer = [0xFF; BUFFER_SIZE];
+    let writes: Vec<&[u8]> = vec![
+        &[SET_RAM_X_WINDOW],
+        &[0x00, 0x0A],
+        &[SET_RAM_Y_WINDOW],
+        &[0x00, 0x00, 0xB7, 0x00],
+        &[SET_RAM_X_CURSOR],
+        &[0x00],
+        &[SET_RAM_Y_CURSOR],
+        &[0x00, 0x00],
+        &[WRITE_RAM],
+        &framebuffer,
+        &[DISPLAY_UPDATE_CONTROL_2],
+        &[0xF7],
+        &[MASTER_ACTIVATION],
+    ];
+    let kinds = [
+        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
+    ];
+    let mut parts = mock_parts(&writes, &kinds);
+
+    parts.busy.expect_is_high().returning(|| Ok(true));
+    parts.delay.expect_delay_ns().return_const(());
+
+    let mut display = make_display(parts);
+    let error = display
+        .show_full(&framebuffer)
+        .expect_err("display that remains busy must time out");
+
+    assert!(matches!(error, EpdError::BusyTimeout));
+}
