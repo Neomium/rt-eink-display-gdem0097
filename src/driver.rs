@@ -10,8 +10,10 @@ use crate::{
     framebuffer::{BUFFER_SIZE, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH},
 };
 
+/// Display-update control value used for a full refresh.
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
 
+/// Display-update control value used for a partial refresh.
 const PARTIAL_REFRESH_CONTROL: u8 = 0xFF;
 
 /// Controller is busy for at most 15 seconds.
@@ -78,6 +80,10 @@ where
     }
 
     /// Performs a hardware reset.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EpdError::Pin`] if the reset pin cannot be changed.
     pub fn reset(&mut self) -> Result<(), EpdError<SPI::Error>> {
         self.rst.set_high().map_err(|_| EpdError::Pin)?;
         self.delay.delay_ms(20);
@@ -92,6 +98,17 @@ where
     }
 
     /// Initializes the display controller.
+    ///
+    /// This performs a hardware reset and configures the controller's RAM,
+    /// waveform, temperature sensor, and address counters.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    ///
+    /// - [`EpdError::Spi`] if an SPI transfer fails;
+    /// - [`EpdError::Pin`] if a GPIO operation fails;
+    /// - [`EpdError::BusyTimeout`] if the controller does not become idle.
     pub fn init(&mut self) -> Result<(), EpdError<SPI::Error>> {
         self.reset()?;
 
@@ -121,6 +138,11 @@ where
     }
 
     /// Writes the complete framebuffer and performs a full refresh.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if SPI or GPIO communication fails, or if the
+    /// controller does not become idle before the timeout.
     pub fn show_full(&mut self, buffer: &[u8; BUFFER_SIZE]) -> Result<(), EpdError<SPI::Error>> {
         self.set_full_ram_window()?;
         self.set_ram_cursor(0, 0)?;
@@ -131,7 +153,17 @@ where
         self.refresh_full()
     }
 
-    /// Writes one byte-aligned framebuffer region and performs a partial refresh.
+    //// Writes one byte-aligned framebuffer region and performs a partial refresh.
+    ///
+    /// The region's X coordinate and width must both be divisible by eight.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    ///
+    /// - [`EpdError::InvalidRegion`] if the region is empty or out of bounds;
+    /// - [`EpdError::UnalignedRegion`] if X or width is not byte-aligned;
+    /// - an SPI, pin, or busy-timeout error if the update fails.
     pub fn show_partial(
         &mut self,
         framebuffer: &FrameBuffer,
@@ -151,7 +183,12 @@ where
 
     /// Puts the display into deep sleep.
     ///
-    /// The display must be reset before it can be used again.
+    /// The display must be reset and initialized before it can be used again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EpdError::Spi`] or [`EpdError::Pin`] if the sleep command
+    /// cannot be sent.
     pub fn sleep(&mut self) -> Result<(), EpdError<SPI::Error>> {
         self.send_command(Command::DeepSleepMode)?;
         self.send_data(&[0x01])
@@ -222,6 +259,7 @@ where
     }
 
     /// Validates a partial-update region.
+    #[allow(clippy::unused_self)]
     fn validate_region(&self, region: Region) -> Result<(), EpdError<SPI::Error>> {
         if region.width == 0 || region.height == 0 {
             return Err(EpdError::InvalidRegion);

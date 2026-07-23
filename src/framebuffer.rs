@@ -10,9 +10,13 @@ pub const ROW_BYTES: usize = WIDTH.div_ceil(8);
 /// Total framebuffer size in bytes.
 pub const BUFFER_SIZE: usize = ROW_BYTES * HEIGHT;
 
+/// A monochrome framebuffer pixel color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Color {
+    /// A cleared framebuffer bit.
     Black,
+
+    /// A set framebuffer bit.
     White,
 }
 
@@ -70,9 +74,6 @@ impl Region {
 }
 
 /// One-bit-per-pixel framebuffer for the GDEM0097T61 display.
-///
-/// A cleared bit represents black.
-/// A set bit represents white.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrameBuffer {
     data: [u8; BUFFER_SIZE],
