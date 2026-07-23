@@ -2,16 +2,6 @@
 
 A no_std Rust driver for the GDEM0097T61 monochrome e-paper display, built on embedded-hal 1.0 traits.
 
-The crate provides:
-
-display initialization;
-full and partial display refreshes;
-a packed 1-bit framebuffer;
-pixel-level drawing;
-busy-pin polling with timeout handling;
-hardware reset;
-deep sleep support.
-
 The driver is platform-independent and can be used with any microcontroller platform that provides compatible embedded-hal implementations.
 
 ---
@@ -53,6 +43,7 @@ epd-gdem0097t61 = "0.1"
 
 Create the driver using your platform-specific SPI peripheral, GPIO pins, and delay implementation.
 
+```rust
 use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer};
 
 let mut display = EpdDisplay::new(
@@ -74,6 +65,7 @@ framebuffer.set_pixel(10, 20, Color::Black);
 display.show_full(framebuffer.as_bytes())?;
 
 display.sleep()?;
+```
 
 The concrete types of spi, cs, dc, rst, busy, and delay depend on the microcontroller and hardware abstraction layer being used.
 
@@ -81,6 +73,7 @@ The concrete types of spi, cs, dc, rst, busy, and delay depend on the microcontr
 
 A partial refresh updates only a selected rectangular region.
 
+```rust
 use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer, Region};
 
 let mut framebuffer = FrameBuffer::new();
@@ -99,6 +92,7 @@ display.show_partial(&framebuffer, region)?;
 A Region is defined as:
 
 Region::new(x, y, width, height)
+```
 
 The coordinates use the display's normal framebuffer coordinate system:
 
@@ -112,31 +106,33 @@ The framebuffer stores eight horizontal pixels in each byte. Partial regions mus
 
 The following conditions apply:
 
-x must be divisible by 8;
-width must be divisible by 8;
-width and height must be greater than zero;
-the region must remain inside the display boundaries;
-the end-coordinate calculations must not overflow.
+- x must be divisible by 8;
+- width must be divisible by 8;
+- width and height must be greater than zero;
+- the region must remain inside the display boundaries;
+- the end-coordinate calculations must not overflow.
 
 ## Framebuffer
 
 The display uses a packed 1-bit framebuffer.
 
-Black pixels are stored as cleared bits: 0
-White pixels are stored as set bits: 1
-Each byte stores eight horizontal pixels
-The most significant bit represents the leftmost pixel in a byte
+- Black pixels are stored as cleared bits: 0
+- White pixels are stored as set bits: 1
+- Each byte stores eight horizontal pixels
+- The most significant bit represents the leftmost pixel in a byte
 
 The framebuffer dimensions are:
 
-Width:       88 pixels
-Height:     184 pixels
-Bytes/row:   11 bytes
-Buffer size: 2024 bytes
+|Width | 88 pixels |
+|Height | 184 pixels |
+|Bytes/row | 11 bytes |
+|Buffer size | 2024 bytes |
 
 Pixel values can be read using:
 
+```rust
 let color = framebuffer.pixel(20, 30);
+```
 
 ## Public API
 
