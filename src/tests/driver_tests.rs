@@ -1,6 +1,8 @@
 use embedded_hal::{
     delay::DelayNs,
-    digital::{Error as DigitalError, ErrorKind as DigitalErrorKind, ErrorType as DigitalErrorType},
+    digital::{
+        Error as DigitalError, ErrorKind as DigitalErrorKind, ErrorType as DigitalErrorType
+    },
     spi::{Error as SpiError, ErrorKind as SpiErrorKind, ErrorType as SpiErrorType, SpiBus},
 };
 use mockall::{Sequence, mock, predicate::eq};
@@ -148,6 +150,7 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
 
     let mut dc = MockOutputPin::new();
     let mut dc_sequence = Sequence::new();
+    
     for transfer_kind in command_or_data {     
         match *transfer_kind {
             TransferKind::Data => {
@@ -172,14 +175,19 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
         rst: MockOutputPin::new(),
         busy: MockInputPin::new(),
         delay: MockDelay::new(),
-    }
-        
+    }        
 }
 
 fn make_display(parts: MockParts) -> MockDisplay {
-    let MockParts {spi, cs, dc, rst, busy, delay} = parts;
-    EpdDisplay::new(spi, cs, dc, rst, busy, delay)
-        .expect("display construction should succeed")
+    let MockParts {
+        spi, 
+        cs, 
+        dc, 
+        rst, 
+        busy, 
+        delay
+    } = parts;
+    EpdDisplay::new(spi, cs, dc, rst, busy, delay).expect("display construction should succeed")
 }
 
 fn expect_reset(rst: &mut MockOutputPin, delay: &mut MockDelay) {
@@ -247,8 +255,25 @@ fn init_sends_the_complete_controller_configuration() {
         &[0x00, 0x00],
     ];
     let kinds = [
-        TransferKind::Command, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
-        TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data,
+        TransferKind::Command, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command,
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data,
     ];
     let mut parts = mock_parts(writes, &kinds);
     expect_reset(&mut parts.rst, &mut parts.delay);
@@ -277,7 +302,18 @@ fn show_full_writes_the_entire_framebuffer_and_triggers_full_refresh() {
         &[MASTER_ACTIVATION],
     ];
     let kinds = [
-        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data,
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data,
         TransferKind::Command,
     ];
     let mut parts = mock_parts(&writes, &kinds);
@@ -312,11 +348,25 @@ fn show_partial_writes_only_the_requested_rows_and_bytes() {
         &[MASTER_ACTIVATION],
     ];
     let kinds = [
-        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Data, TransferKind::Command,
-        TransferKind::Data, TransferKind::Command,
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Data, 
+        TransferKind::Command,
+        TransferKind::Data, 
+        TransferKind::Command,
     ];
+
     let mut parts = mock_parts(writes, &kinds);
     parts.busy.expect_is_high().times(1).returning(|| Ok(false));
+    
     let mut display = make_display(parts); 
 
     display
@@ -328,6 +378,7 @@ fn show_partial_writes_only_the_requested_rows_and_bytes() {
 fn sleep_sends_the_deep_sleep_command_and_check_code() {
     let writes: &[&[u8]] = &[&[DEEP_SLEEP], &[0x01]];
     let kinds = [TransferKind::Command, TransferKind::Data];
+    
     let mut display = make_display(mock_parts(writes, &kinds));
 
     display.sleep().expect("sleep should succeed");
@@ -397,9 +448,21 @@ fn busy_pin_is_polled_until_the_display_becomes_idle() {
         &[MASTER_ACTIVATION],
     ];
     let kinds = [
-        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data,
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data,
         TransferKind::Command,
     ];
+
     let mut parts = mock_parts(&writes, &kinds);
 
     let mut busy_sequence = Sequence::new();
@@ -447,8 +510,21 @@ fn busy_remaining_high_returns_busy_timeout() {
         &[MASTER_ACTIVATION],
     ];
     let kinds = [
-        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command,
     ];
+    
     let mut parts = mock_parts(&writes, &kinds);
 
     parts.busy.expect_is_high().returning(|| Ok(true));
@@ -483,7 +559,19 @@ fn busy_pin_read_failure_is_returned_as_pin_error() {
     ];
 
     let kinds = [
-        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command,
     ];
    
    let mut parts = mock_parts(&writes, &kinds);
@@ -530,9 +618,7 @@ fn spi_write_failure_is_returned_as_spi_error() {
         .returning(|| Ok(()));
 
     let mut dc = MockOutputPin::new();
-    dc.expect_set_low()
-        .times(1)
-        .returning(|| Ok(()));
+    dc.expect_set_low().times(1).returning(|| Ok(()));
 
     let mut display = EpdDisplay::new(
         spi,
@@ -548,10 +634,7 @@ fn spi_write_failure_is_returned_as_spi_error() {
         .sleep()
         .expect_err("SPI write failure must be returned");
 
-    assert!(matches!(
-        error,
-        EpdError::Spi(TestSpiError::WriteFailed)
-    ));
+    assert!(matches!(error, EpdError::Spi(TestSpiError::WriteFailed)));
 }
 
 #[test]
@@ -570,8 +653,7 @@ fn chip_select_failure_during_construction_is_returned_as_pin_error() {
         MockDelay::new(),
     );
 
-    assert!(matches!(result, Err(EpdError::Pin)
-));
+    assert!(matches!(result, Err(EpdError::Pin)));
 }
 
 #[test]
@@ -601,7 +683,20 @@ fn show_partial_reads_bytes_from_the_correct_framebuffer_offsets() {
         &[MASTER_ACTIVATION],
     ];
     let kinds = [
-        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Data, 
+        TransferKind::Command, 
+        TransferKind::Data, 
+        TransferKind::Command,
     ];
     let mut parts = mock_parts(writes, &kinds);
     parts.busy.expect_is_high().times(1).returning(|| Ok(false));

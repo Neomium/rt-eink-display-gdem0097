@@ -123,10 +123,10 @@ The display uses a packed 1-bit framebuffer.
 
 The framebuffer dimensions are:
 
-|Width | 88 pixels |
-|Height | 184 pixels |
-|Bytes/row | 11 bytes |
-|Buffer size | 2024 bytes |
+- Width = 88 pixels 
+- Height = 184 pixels 
+- Bytes/row = 11 bytes 
+- Buffer size = 2024 bytes 
 
 Pixel values can be read using:
 

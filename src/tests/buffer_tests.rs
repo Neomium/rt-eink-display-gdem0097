@@ -143,8 +143,3 @@ fn region_end_returns_none_on_overflow() {
     assert_eq!(region.x_end(), None);
     assert_eq!(region.y_end(), None);
 }
-
-
-
-
-
