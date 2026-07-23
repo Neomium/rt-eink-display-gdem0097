@@ -3,7 +3,7 @@ use embedded_hal::{
     digital::{Error as DigitalError, ErrorKind as DigitalErrorKind, ErrorType as DigitalErrorType},
     spi::{Error as SpiError, ErrorKind as SpiErrorKind, ErrorType as SpiErrorType, SpiBus},
 };
-use mockall::{mock, predicate::eq, Sequence};
+use mockall::{Sequence, mock, predicate::eq};
 
 use std::{vec, vec::Vec};
 
@@ -38,6 +38,7 @@ impl SpiError for TestSpiError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestPinError {
     SetHighFailed,
+    ReadFailed,
 }
 
 impl DigitalError for TestPinError {
@@ -461,3 +462,152 @@ fn busy_remaining_high_returns_busy_timeout() {
     assert!(matches!(error, EpdError::BusyTimeout));
 }
 
+#[test]
+fn busy_pin_read_failure_is_returned_as_pin_error() {
+    let framebuffer = [0xFF; BUFFER_SIZE];
+
+    let writes: Vec<&[u8]> = vec![
+        &[SET_RAM_X_WINDOW],
+        &[0x00, 0x0A],
+        &[SET_RAM_Y_WINDOW],
+        &[0x00, 0x00, 0xB7, 0x00],
+        &[SET_RAM_X_CURSOR],
+        &[0x00],
+        &[SET_RAM_Y_CURSOR],
+        &[0x00, 0x00],
+        &[WRITE_RAM],
+        &framebuffer,
+        &[DISPLAY_UPDATE_CONTROL_2],
+        &[0xF7],
+        &[MASTER_ACTIVATION],
+    ];
+
+    let kinds = [
+        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
+    ];
+   
+   let mut parts = mock_parts(&writes, &kinds);
+
+    parts
+        .busy
+        .expect_is_high()
+        .times(1)
+        .returning(|| Err(TestPinError::ReadFailed));
+
+    let mut display = make_display(parts);
+
+    let error = display
+        .show_full(&framebuffer)
+        .expect_err("BUSY pin read failure must be returned");
+
+    assert!(matches!(error, EpdError::Pin));
+}
+
+#[test]
+fn spi_write_failure_is_returned_as_spi_error() {
+    let mut spi = MockSpi::new();
+    spi.expect_write()
+        .withf(|bytes| bytes == [DEEP_SLEEP])
+        .times(1)
+        .returning(|_| Err(TestSpiError::WriteFailed));
+
+    let mut cs = MockOutputPin::new();
+    let mut cs_sequence = Sequence::new();
+
+    cs.expect_set_high()
+        .times(1)
+        .in_sequence(&mut cs_sequence)
+        .returning(|| Ok(()));
+
+    cs.expect_set_low()
+        .times(1)
+        .in_sequence(&mut cs_sequence)
+        .returning(|| Ok(()));
+
+    cs.expect_set_high()
+        .times(1)
+        .in_sequence(&mut cs_sequence)
+        .returning(|| Ok(()));
+
+    let mut dc = MockOutputPin::new();
+    dc.expect_set_low()
+        .times(1)
+        .returning(|| Ok(()));
+
+    let mut display = EpdDisplay::new(
+        spi,
+        cs,
+        dc,
+        MockOutputPin::new(),
+        MockInputPin::new(),
+        MockDelay::new(),
+    )
+    .expect("display construction should succeed");
+
+    let error = display
+        .sleep()
+        .expect_err("SPI write failure must be returned");
+
+    assert!(matches!(
+        error,
+        EpdError::Spi(TestSpiError::WriteFailed)
+    ));
+}
+
+#[test]
+fn chip_select_failure_during_construction_is_returned_as_pin_error() {
+    let mut cs = MockOutputPin::new();
+    cs.expect_set_high()
+        .times(1)
+        .returning(|| Err(TestPinError::SetHighFailed));
+
+    let result = EpdDisplay::new(
+        MockSpi::new(),
+        cs,
+        MockOutputPin::new(),
+        MockOutputPin::new(),
+        MockInputPin::new(),
+        MockDelay::new(),
+    );
+
+    assert!(matches!(result, Err(EpdError::Pin)
+));
+}
+
+#[test]
+fn show_partial_reads_bytes_from_the_correct_framebuffer_offsets() {
+    let mut framebuffer = FrameBuffer::new();
+
+    framebuffer.set_pixel(8, 2, Color::Black);
+    framebuffer.set_pixel(16, 2, Color::Black);
+    framebuffer.set_pixel(9, 3, Color::Black);
+    framebuffer.set_pixel(18, 3, Color::Black);
+
+    let region = Region::new(8, 2, 16, 2);
+    let writes: &[&[u8]] = &[
+        &[SET_RAM_X_WINDOW],
+        &[0x01, 0x02],
+        &[SET_RAM_Y_WINDOW],
+        &[0x02, 0x00, 0x03, 0x00],
+        &[SET_RAM_X_CURSOR],
+        &[0x01],
+        &[SET_RAM_Y_CURSOR],
+        &[0x02, 0x00],
+        &[WRITE_RAM],
+        &[0x7F, 0x7F],
+        &[0xBF, 0xDF],
+        &[DISPLAY_UPDATE_CONTROL_2],
+        &[0xFF],
+        &[MASTER_ACTIVATION],
+    ];
+    let kinds = [
+        TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Data, TransferKind::Command, TransferKind::Data, TransferKind::Command,
+    ];
+    let mut parts = mock_parts(writes, &kinds);
+    parts.busy.expect_is_high().times(1).returning(|| Ok(false));
+    let mut display = make_display(parts);
+
+    display
+        .show_partial(&framebuffer, region)
+        .expect("partial refresh should use the correct framebuffer offsets");
+}
