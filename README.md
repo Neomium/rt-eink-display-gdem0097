@@ -1,8 +1,18 @@
 # epd-gdem0097t61
 
-A `no_std` Rust driver for the **GDEM0097T61** monochrome e-paper display using `embedded-hal` 1.0 traits.
+A no_std Rust driver for the GDEM0097T61 monochrome e-paper display, built on embedded-hal 1.0 traits.
 
-This crate provides a lightweight, synchronous interface for initializing the display, managing a framebuffer, writing image data, refreshing the screen, and entering deep sleep. It is platform-independent and can be used with any microcontroller that provides `embedded-hal` implementations.
+The crate provides:
+
+display initialization;
+full and partial display refreshes;
+a packed 1-bit framebuffer;
+pixel-level drawing;
+busy-pin polling with timeout handling;
+hardware reset;
+deep sleep support.
+
+The driver is platform-independent and can be used with any microcontroller platform that provides compatible embedded-hal implementations.
 
 ---
 
@@ -13,7 +23,8 @@ This crate provides a lightweight, synchronous interface for initializing the di
 - Hardware-independent
 - Full display refresh
 - Partial display refresh
-- 1-bit framebuffer implementation
+- Packed 1-bit framebuffer
+- Busy timeout handling
 - Deep sleep support
 ---
 
@@ -38,15 +49,11 @@ epd-gdem0097t61 = "0.1"
 
 ---
 
-## Usage
+## Full refresh example
 
-Create the driver using your platform's SPI peripheral and GPIO pins.
+Create the driver using your platform-specific SPI peripheral, GPIO pins, and delay implementation.
 
-```rust
 use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer};
-
-// Create your SPI peripheral, GPIO pins and delay implementation.
-// These are platform specific.
 
 let mut display = EpdDisplay::new(
     spi,
@@ -54,66 +61,82 @@ let mut display = EpdDisplay::new(
     dc,
     rst,
     busy,
+    delay,
 )?;
 
-display.init(&mut delay)?;
+display.init()?;
 
 let mut framebuffer = FrameBuffer::new();
 
 framebuffer.clear(Color::White);
-
 framebuffer.set_pixel(10, 20, Color::Black);
 
-display.show_full(framebuffer.as_bytes(), &mut delay)?;
+display.show_full(framebuffer.as_bytes())?;
 
 display.sleep()?;
-```
 
-Partial Display Example:
+The concrete types of spi, cs, dc, rst, busy, and delay depend on the microcontroller and hardware abstraction layer being used.
 
-```rust
-    use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer, Region};
+## Partial refresh example
 
-    let mut framebuffer = FrameBuffer::new();
+A partial refresh updates only a selected rectangular region.
 
-    framebuffer.set_pixel(16, 20, Color::Black);
+use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer, Region};
 
-    let region = Region::new(16, 16, 32, 24);
+let mut framebuffer = FrameBuffer::new();
 
-    display.show_partial(
-        &framebuffer,
-        region,
-        &mut delay,
-    )?;
-```
----
+framebuffer.set_pixel(16, 20, Color::Black);
+
+let region = Region::new(
+    16, // x
+    16, // y
+    32, // width
+    24, // height
+);
+
+display.show_partial(&framebuffer, region)?;
+
+A Region is defined as:
+
+Region::new(x, y, width, height)
+
+The coordinates use the display's normal framebuffer coordinate system:
+
+(0, 0) is the top-left pixel;
+X increases from left to right;
+Y increases from top to bottom.
+
+## Partial-refresh restrictions
+
+The framebuffer stores eight horizontal pixels in each byte. Partial regions must therefore be byte-aligned.
+
+The following conditions apply:
+
+x must be divisible by 8;
+width must be divisible by 8;
+width and height must be greater than zero;
+the region must remain inside the display boundaries;
+the end-coordinate calculations must not overflow.
 
 ## Framebuffer
 
 The display uses a packed 1-bit framebuffer.
 
-- Black pixels are stored as cleared bits (`0`)
-- White pixels are stored as set bits (`1`)
+Black pixels are stored as cleared bits: 0
+White pixels are stored as set bits: 1
+Each byte stores eight horizontal pixels
+The most significant bit represents the leftmost pixel in a byte
 
-The framebuffer size is:
+The framebuffer dimensions are:
 
-```text
-88 × 184 pixels
-2024 bytes
-```
+Width:       88 pixels
+Height:     184 pixels
+Bytes/row:   11 bytes
+Buffer size: 2024 bytes
 
-<!-- Example:
+Pixel values can be read using:
 
-```rust
-let mut framebuffer = FrameBuffer::new();
-
-framebuffer.clear(Color::White);
-
-framebuffer.set_pixel(0, 0, Color::Black);
-framebuffer.set_pixel(20, 30, Color::Black);
-``` -->
-
----
+let color = framebuffer.pixel(20, 30);
 
 ## Public API
 
@@ -123,6 +146,7 @@ The crate exposes:
 EpdDisplay
 FrameBuffer
 Color
+Region
 WIDTH
 HEIGHT
 ROW_BYTES
@@ -131,21 +155,6 @@ EpdError
 ```
 
 ---
-
-## Error Handling
-
-Operations return:
-
-```rust
-Result<T, EpdError<_>>
-```
-
-Possible errors include:
-
-- SPI communication failure
-- GPIO failure
-- Busy timeout
-
 
 
 
