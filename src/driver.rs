@@ -1,7 +1,7 @@
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
-    spi::SpiBus,
+    spi::SpiDevice,
 };
 
 use crate::{
@@ -32,19 +32,17 @@ const TEMPERATURE_SENSOR_INTERNAL: u8 = 0x80;
 const DISPLAY_UPDATE_CONTROL1: [u8; 2] = [0x00, 0x80];
 
 /// Hardware driver for the GDEM0097T61 e-paper display.
-pub struct EpdDisplay<SPI, CS, DC, RST, BUSY, DELAY> {
+pub struct EpdDisplay<SPI, DC, RST, BUSY, DELAY> {
     spi: SPI,
-    cs: CS,
     dc: DC,
     rst: RST,
     busy: BUSY,
     delay: DELAY,
 }
 
-impl<SPI, CS, DC, RST, BUSY, DELAY> EpdDisplay<SPI, CS, DC, RST, BUSY, DELAY>
+impl<SPI, DC, RST, BUSY, DELAY> EpdDisplay<SPI, DC, RST, BUSY, DELAY>
 where
-    SPI: SpiBus<u8>,
-    CS: OutputPin,
+    SPI: SpiDevice<u8>,
     DC: OutputPin,
     RST: OutputPin,
     BUSY: InputPin,
@@ -56,27 +54,23 @@ where
     /// Returns [`EpdError::Pin`] if the chip-select pin cannot be set high.
     pub fn new(
         spi: SPI,
-        mut cs: CS,
         dc: DC,
         rst: RST,
         busy: BUSY,
         delay: DELAY,
-    ) -> Result<Self, EpdError<SPI::Error>> {
-        cs.set_high().map_err(|_| EpdError::Pin)?;
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             spi,
-            cs,
             dc,
             rst,
             busy,
             delay,
-        })
+        }
     }
 
     /// Returns ownership of the SPI bus and all control pins.
-    pub fn release(self) -> (SPI, CS, DC, RST, BUSY, DELAY) {
-        (self.spi, self.cs, self.dc, self.rst, self.busy, self.delay)
+    pub fn release(self) -> (SPI, DC, RST, BUSY, DELAY) {
+        (self.spi, self.dc, self.rst, self.busy, self.delay)
     }
 
     /// Performs a hardware reset.
@@ -197,29 +191,33 @@ where
     /// Sends one command byte.
     fn send_command(&mut self, command: Command) -> Result<(), EpdError<SPI::Error>> {
         self.dc.set_low().map_err(|_| EpdError::Pin)?;
-        self.cs.set_low().map_err(|_| EpdError::Pin)?;
+        //self.cs.set_low().map_err(|_| EpdError::Pin)?;
 
-        let write_result = self.spi.write(&[command as u8]);
-        let deselect_result = self.cs.set_high();
+        self.spi.write(&[command as u8]).map_err(EpdError::Spi)
 
-        write_result.map_err(EpdError::Spi)?;
-        deselect_result.map_err(|_| EpdError::Pin)?;
+        //let write_result = self.spi.write(&[command as u8]);
+        //let deselect_result = self.cs.set_high();
 
-        Ok(())
+        //write_result.map_err(EpdError::Spi)?;
+        //deselect_result.map_err(|_| EpdError::Pin)?;
+
+        //Ok(())
     }
 
     /// Sends data bytes belonging to a command.
     fn send_data(&mut self, data: &[u8]) -> Result<(), EpdError<SPI::Error>> {
         self.dc.set_high().map_err(|_| EpdError::Pin)?;
-        self.cs.set_low().map_err(|_| EpdError::Pin)?;
+        //self.cs.set_low().map_err(|_| EpdError::Pin)?;
 
-        let write_result = self.spi.write(data);
-        let deselect_result = self.cs.set_high();
+        self.spi.write(data).map_err(EpdError::Spi)
 
-        write_result.map_err(EpdError::Spi)?;
-        deselect_result.map_err(|_| EpdError::Pin)?;
+        // let write_result = self.spi.write(data);
+        //let deselect_result = self.cs.set_high();
 
-        Ok(())
+        // write_result.map_err(EpdError::Spi)?;
+        // deselect_result.map_err(|_| EpdError::Pin)?;
+
+        //Ok(())
     }
 
     /// Triggers a complete display refresh.

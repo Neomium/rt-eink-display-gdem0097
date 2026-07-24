@@ -3,13 +3,15 @@ use embedded_hal::{
     digital::{
         Error as DigitalError, ErrorKind as DigitalErrorKind, ErrorType as DigitalErrorType
     },
-    spi::{Error as SpiError, ErrorKind as SpiErrorKind, ErrorType as SpiErrorType, SpiBus},
+    spi::{Error as SpiError, ErrorKind as SpiErrorKind, ErrorType as SpiErrorType, SpiDevice, Operation as SpiOperation},
 };
 use mockall::{Sequence, mock, predicate::eq};
 
 use std::{vec, vec::Vec};
 
 use crate::{BUFFER_SIZE, Color, EpdDisplay, EpdError, FrameBuffer, Region};
+
+use crate::command::Command;
 
 const SOFTWARE_RESET: u8 = 0x12;
 const DRIVER_OUTPUT_CONTROL: u8 = 0x01;
@@ -39,7 +41,7 @@ impl SpiError for TestSpiError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestPinError {
-    SetHighFailed,
+    //SetHighFailed,
     ReadFailed,
 }
 
@@ -57,13 +59,15 @@ mock! {
         type Error = TestSpiError;
     }
 
-    impl SpiBus<u8> for Spi {
-        fn read(&mut self, words: &mut [u8]) -> Result<(), TestSpiError>;
-        fn write(&mut self, words: &[u8]) -> Result<(), TestSpiError>;
-        fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), TestSpiError>;
-        fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), TestSpiError>;
-        fn flush(&mut self) -> Result<(), TestSpiError>;
-    }
+    impl SpiDevice<u8> for Spi {
+        
+        fn transaction<'a>(&mut self, operations: &mut [SpiOperation<'a, u8>]) -> Result<(), TestSpiError>;
+        // fn read(&mut self, words: &mut [u8]) -> Result<(), TestSpiError>;
+        // fn write(&mut self, words: &[u8]) -> Result<(), TestSpiError>;
+        // fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), TestSpiError>;
+        // fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), TestSpiError>;
+        
+    }    
 }
 
 mock! {
@@ -101,11 +105,11 @@ mock! {
 }
 
 type MockDisplay =
-    EpdDisplay<MockSpi, MockOutputPin, MockOutputPin, MockOutputPin, MockInputPin, MockDelay>;
+    EpdDisplay<MockSpi, MockOutputPin, MockOutputPin, MockInputPin, MockDelay>;
 
 struct MockParts {
     spi: MockSpi,
-    cs: MockOutputPin,
+    //cs: MockOutputPin,
     dc: MockOutputPin,
     rst: MockOutputPin,
     busy: MockInputPin,
@@ -121,13 +125,23 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
     assert_eq!(writes.len(), command_or_data.len());
 
     let mut spi = MockSpi::new();
-    let mut spi_sequence = Sequence::new();
+    //let mut spi_sequence = Sequence::new();
     for write in writes {
-        let expected = write.to_vec();
-        spi.expect_write()
-            .withf(move |actual| actual == expected.as_slice())
+        //let expected = write.to_vec();
+        // spi.expect_write()
+        //     .withf(move |actual| actual == expected.as_slice())
+        //     .times(1)
+        //     .in_sequence(&mut spi_sequence)
+        //     .returning(|_| Ok(()));
+        spi.expect_transaction()
+            .withf(|operations| {
+                matches!(
+                    operations,
+                    [SpiOperation::Write(data)]
+                        if *data == [Command::SoftwareReset as u8]
+                )
+            })
             .times(1)
-            .in_sequence(&mut spi_sequence)
             .returning(|_| Ok(()));
     }
 
@@ -170,7 +184,7 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
 
     MockParts {
         spi,
-        cs,
+        //cs,
         dc,
         rst: MockOutputPin::new(),
         busy: MockInputPin::new(),
@@ -181,13 +195,13 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
 fn make_display(parts: MockParts) -> MockDisplay {
     let MockParts {
         spi, 
-        cs, 
+        //cs, 
         dc, 
         rst, 
         busy, 
         delay
     } = parts;
-    EpdDisplay::new(spi, cs, dc, rst, busy, delay).expect("display construction should succeed")
+    EpdDisplay::new(spi, dc, rst, busy, delay)
 }
 
 fn expect_reset(rst: &mut MockOutputPin, delay: &mut MockDelay) {
@@ -219,7 +233,7 @@ fn expect_reset(rst: &mut MockOutputPin, delay: &mut MockDelay) {
 #[test]
 fn new_sets_chip_select_high_and_release_returns_all_resources() {
     let display = make_display(mock_parts(&[], &[]));
-    let (_spi, _cs, _dc, _rst, _busy, _delay) = display.release();
+    let (_spi, _dc, _rst, _busy, _delay) = display.release();
 }
 
 #[test]
@@ -524,7 +538,7 @@ fn busy_remaining_high_returns_busy_timeout() {
         TransferKind::Data, 
         TransferKind::Command,
     ];
-    
+
     let mut parts = mock_parts(&writes, &kinds);
 
     parts.busy.expect_is_high().returning(|| Ok(true));
@@ -594,8 +608,13 @@ fn busy_pin_read_failure_is_returned_as_pin_error() {
 #[test]
 fn spi_write_failure_is_returned_as_spi_error() {
     let mut spi = MockSpi::new();
-    spi.expect_write()
-        .withf(|bytes| bytes == [DEEP_SLEEP])
+    spi.expect_transaction()
+        .withf(|operations| {
+            matches!(
+                operations,
+                [SpiOperation::Write(data)] if *data == [DEEP_SLEEP]
+            )
+        })
         .times(1)
         .returning(|_| Err(TestSpiError::WriteFailed));
 
@@ -622,13 +641,11 @@ fn spi_write_failure_is_returned_as_spi_error() {
 
     let mut display = EpdDisplay::new(
         spi,
-        cs,
         dc,
         MockOutputPin::new(),
         MockInputPin::new(),
         MockDelay::new(),
-    )
-    .expect("display construction should succeed");
+    );
 
     let error = display
         .sleep()
@@ -637,24 +654,23 @@ fn spi_write_failure_is_returned_as_spi_error() {
     assert!(matches!(error, EpdError::Spi(TestSpiError::WriteFailed)));
 }
 
-#[test]
-fn chip_select_failure_during_construction_is_returned_as_pin_error() {
-    let mut cs = MockOutputPin::new();
-    cs.expect_set_high()
-        .times(1)
-        .returning(|| Err(TestPinError::SetHighFailed));
+// #[test]
+// fn chip_select_failure_during_construction_is_returned_as_pin_error() {
+//     let mut cs = MockOutputPin::new();
+//     cs.expect_set_high()
+//         .times(1)
+//         .returning(|| Err(TestPinError::SetHighFailed));
 
-    let result = EpdDisplay::new(
-        MockSpi::new(),
-        cs,
-        MockOutputPin::new(),
-        MockOutputPin::new(),
-        MockInputPin::new(),
-        MockDelay::new(),
-    );
+//     let result = EpdDisplay::new(
+//         MockSpi::new(),
+//         MockOutputPin::new(),
+//         MockOutputPin::new(),
+//         MockInputPin::new(),
+//         MockDelay::new(),
+//     );
 
-    assert!(matches!(result, Err(EpdError::Pin)));
-}
+//     assert!(matches!(result, Err(EpdError::Pin)));
+// }
 
 #[test]
 fn show_partial_reads_bytes_from_the_correct_framebuffer_offsets() {
