@@ -9,7 +9,7 @@ use mockall::{Sequence, mock, predicate::eq};
 
 use std::{vec, vec::Vec};
 
-use crate::{BUFFER_SIZE, Color, EpdDisplay, EpdError, FrameBuffer, Region};
+use crate::{BUFFER_SIZE, Color, Display, EpdError, FrameBuffer, Region};
 
 use crate::command::Command;
 
@@ -105,7 +105,7 @@ mock! {
 }
 
 type MockDisplay =
-    EpdDisplay<MockSpi, MockOutputPin, MockOutputPin, MockInputPin, MockDelay>;
+    Display<MockSpi, MockOutputPin, MockOutputPin, MockInputPin, MockDelay>;
 
 struct MockParts {
     spi: MockSpi,
@@ -184,7 +184,6 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
 
     MockParts {
         spi,
-        //cs,
         dc,
         rst: MockOutputPin::new(),
         busy: MockInputPin::new(),
@@ -194,14 +193,13 @@ fn mock_parts(writes: &[&[u8]], command_or_data: &[TransferKind]) -> MockParts {
 
 fn make_display(parts: MockParts) -> MockDisplay {
     let MockParts {
-        spi, 
-        //cs, 
+        spi,  
         dc, 
         rst, 
         busy, 
         delay
     } = parts;
-    EpdDisplay::new(spi, dc, rst, busy, delay)
+    Display::new(spi, dc, rst, busy, delay)
 }
 
 fn expect_reset(rst: &mut MockOutputPin, delay: &mut MockDelay) {
@@ -639,7 +637,7 @@ fn spi_write_failure_is_returned_as_spi_error() {
     let mut dc = MockOutputPin::new();
     dc.expect_set_low().times(1).returning(|| Ok(()));
 
-    let mut display = EpdDisplay::new(
+    let mut display = Display::new(
         spi,
         dc,
         MockOutputPin::new(),
@@ -661,7 +659,7 @@ fn spi_write_failure_is_returned_as_spi_error() {
 //         .times(1)
 //         .returning(|| Err(TestPinError::SetHighFailed));
 
-//     let result = EpdDisplay::new(
+//     let result = Display::new(
 //         MockSpi::new(),
 //         MockOutputPin::new(),
 //         MockOutputPin::new(),

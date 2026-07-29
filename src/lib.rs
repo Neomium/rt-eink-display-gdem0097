@@ -5,7 +5,7 @@ mod driver;
 mod error;
 mod framebuffer;
 
-pub use driver::EpdDisplay;
+pub use driver::Display;
 pub use error::EpdError;
 pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH};
 

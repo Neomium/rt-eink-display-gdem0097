@@ -16,7 +16,7 @@ const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
 /// Display-update control value used for a partial refresh.
 const PARTIAL_REFRESH_CONTROL: u8 = 0xFF;
 
-/// Controller is busy for at most 15 seconds.
+/// Maximum time to wait for the controller to become idle before reporting an error.
 const BUSY_TIMEOUT_MS: u32 = 15_000;
 
 /// Data entry mode: increment X and Y after each byte written.
@@ -32,15 +32,25 @@ const TEMPERATURE_SENSOR_INTERNAL: u8 = 0x80;
 const DISPLAY_UPDATE_CONTROL1: [u8; 2] = [0x00, 0x80];
 
 /// Hardware driver for the GDEM0097T61 e-paper display.
-pub struct EpdDisplay<SPI, DC, RST, BUSY, DELAY> {
+pub struct Display<SPI, DC, RST, BUSY, DELAY> {
+
+    /// SPI device used to communicate with the display controller.
     spi: SPI,
-    dc: DC,
-    rst: RST,
-    busy: BUSY,
+
+    /// Data/command pin used to distinguish commands from display data.
+    pin_dc: DC,
+
+    /// Reset pin used to perform a hardware reset of the display.
+    pin_reset: RST,
+
+    /// Busy pin used to determine when the display controller is ready.
+    pin_busy: BUSY,
+
+    /// Delay provider used for reset timing and busy polling.
     delay: DELAY,
 }
 
-impl<SPI, DC, RST, BUSY, DELAY> EpdDisplay<SPI, DC, RST, BUSY, DELAY>
+impl<SPI, DC, RST, BUSY, DELAY> Display<SPI, DC, RST, BUSY, DELAY>
 where
     SPI: SpiDevice<u8>,
     DC: OutputPin,
@@ -49,28 +59,25 @@ where
     DELAY: DelayNs,
 {
     /// Creates a display driver and initially deselects the display.
-    /// # Errors
-    ///
-    /// Returns [`EpdError::Pin`] if the chip-select pin cannot be set high.
     pub fn new(
         spi: SPI,
-        dc: DC,
-        rst: RST,
-        busy: BUSY,
+        pin_dc: DC,
+        pin_reset: RST,
+        pin_busy: BUSY,
         delay: DELAY,
     ) -> Self {
         Self {
             spi,
-            dc,
-            rst,
-            busy,
+            pin_dc,
+            pin_reset,
+            pin_busy,
             delay,
         }
     }
 
-    /// Returns ownership of the SPI bus and all control pins.
+    /// Returns ownership of the SPI device and all control pins.
     pub fn release(self) -> (SPI, DC, RST, BUSY, DELAY) {
-        (self.spi, self.dc, self.rst, self.busy, self.delay)
+        (self.spi, self.pin_dc, self.pin_reset, self.pin_busy, self.delay)
     }
 
     /// Performs a hardware reset.
@@ -79,14 +86,16 @@ where
     ///
     /// Returns [`EpdError::Pin`] if the reset pin cannot be changed.
     pub fn reset(&mut self) -> Result<(), EpdError<SPI::Error>> {
-        self.rst.set_high().map_err(|_| EpdError::Pin)?;
-        self.delay.delay_ms(20);
+        //self.pin_reset.set_high().map_err(|_| EpdError::Pin)?;
+        //self.delay.delay_ms(20);
 
-        self.rst.set_low().map_err(|_| EpdError::Pin)?;
-        self.delay.delay_ms(10);
+        self.pin_reset.set_low().map_err(|_| EpdError::Pin)?;
+        self.delay.delay_us(200);
 
-        self.rst.set_high().map_err(|_| EpdError::Pin)?;
-        self.delay.delay_ms(20);
+        self.pin_reset.set_high().map_err(|_| EpdError::Pin)?;
+        self.delay.delay_us(200);
+
+        self.wait_until_idle(BUSY_TIMEOUT_MS)?;
 
         Ok(())
     }
@@ -147,7 +156,7 @@ where
         self.refresh_full()
     }
 
-    //// Writes one byte-aligned framebuffer region and performs a partial refresh.
+    /// Writes one byte-aligned framebuffer region and performs a partial refresh.
     ///
     /// The region's X coordinate and width must both be divisible by eight.
     ///
@@ -190,13 +199,9 @@ where
 
     /// Sends one command byte.
     fn send_command(&mut self, command: Command) -> Result<(), EpdError<SPI::Error>> {
-        self.dc.set_low().map_err(|_| EpdError::Pin)?;
-        //self.cs.set_low().map_err(|_| EpdError::Pin)?;
-
+        self.pin_dc.set_low().map_err(|_| EpdError::Pin)?;
+        
         self.spi.write(&[command as u8]).map_err(EpdError::Spi)
-
-        //let write_result = self.spi.write(&[command as u8]);
-        //let deselect_result = self.cs.set_high();
 
         //write_result.map_err(EpdError::Spi)?;
         //deselect_result.map_err(|_| EpdError::Pin)?;
@@ -206,13 +211,9 @@ where
 
     /// Sends data bytes belonging to a command.
     fn send_data(&mut self, data: &[u8]) -> Result<(), EpdError<SPI::Error>> {
-        self.dc.set_high().map_err(|_| EpdError::Pin)?;
-        //self.cs.set_low().map_err(|_| EpdError::Pin)?;
+        self.pin_dc.set_high().map_err(|_| EpdError::Pin)?;
 
         self.spi.write(data).map_err(EpdError::Spi)
-
-        // let write_result = self.spi.write(data);
-        //let deselect_result = self.cs.set_high();
 
         // write_result.map_err(EpdError::Spi)?;
         // deselect_result.map_err(|_| EpdError::Pin)?;
@@ -244,7 +245,7 @@ where
     fn wait_until_idle(&mut self, timeout_ms: u32) -> Result<(), EpdError<SPI::Error>> {
         let mut elapsed_ms = 0;
 
-        while self.busy.is_high().map_err(|_| EpdError::Pin)? {
+        while self.pin_busy.is_high().map_err(|_| EpdError::Pin)? {
             if elapsed_ms >= timeout_ms {
                 return Err(EpdError::BusyTimeout);
             }
@@ -257,7 +258,6 @@ where
     }
 
     /// Validates a partial-update region.
-    #[allow(clippy::unused_self)]
     fn validate_region(&self, region: Region) -> Result<(), EpdError<SPI::Error>> {
         if region.width == 0 || region.height == 0 {
             return Err(EpdError::InvalidRegion);
