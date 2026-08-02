@@ -1,24 +1,29 @@
-///
-/// `SpiError` is generic because different SPI implementations
-/// can have different error types. The driver does not need to know
-/// the exact SPI error type in advance; it just wraps it inside
-/// `EpdError::Spi`.
-///
-/// Pin errors from GPIO operations are simplified into `EpdError::Pin`.
+/// The underlying SPI and GPIO error values are preserved so callers can
+/// inspect the original hardware error.
 #[derive(Debug)]
-pub enum EpdError<SpiError> {
+pub enum Error<SpiError, PinError> {
     /// An SPI communication operation failed.
     Spi(SpiError),
 
     /// A GPIO operation failed.
-    Pin,
+    Pin(PinError),
 
     /// The display remained busy for longer than the configured timeout.
     BusyTimeout,
+}
 
-    /// A partial-update region was empty, outside the display, or overflowed.
-    InvalidRegion,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionError {
+    /// The region is empty or exceeds the display bounds.
+    Invalid,
 
-    /// A partial-update region was not aligned to whole framebuffer bytes.
-    UnalignedRegion,
+    /// The region is not horizontally byte-aligned.
+    Unaligned,
+}
+
+/// Errors produced by framebuffer operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameBufferError {
+    /// The requested pixel coordinates are outside the display bounds.
+    OutOfBounds,
 }

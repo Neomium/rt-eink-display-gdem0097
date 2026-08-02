@@ -6,8 +6,9 @@ use embedded_hal::{
 
 use crate::{
     command::Command,
-    error::EpdError,
-    framebuffer::{BUFFER_SIZE, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH},
+    config::Config,
+    error::Error,
+    framebuffer::{FrameBuffer, HEIGHT, ROW_BYTES, Region},
 };
 
 /// Display-update control value used for a full refresh.
@@ -15,9 +16,6 @@ const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
 
 /// Display-update control value used for a partial refresh.
 const PARTIAL_REFRESH_CONTROL: u8 = 0xFF;
-
-/// Maximum time to wait for the controller to become idle before reporting an error.
-const BUSY_TIMEOUT_MS: u32 = 15_000;
 
 /// Data entry mode: increment X and Y after each byte written.
 const DATA_ENTRY_MODE: u8 = 0x03;
@@ -33,7 +31,6 @@ const DISPLAY_UPDATE_CONTROL1: [u8; 2] = [0x00, 0x80];
 
 /// Hardware driver for the GDEM0097T61 e-paper display.
 pub struct Display<SPI, DC, RST, BUSY, DELAY> {
-
     /// SPI device used to communicate with the display controller.
     spi: SPI,
 
@@ -48,23 +45,27 @@ pub struct Display<SPI, DC, RST, BUSY, DELAY> {
 
     /// Delay provider used for reset timing and busy polling.
     delay: DELAY,
+
+    /// Runtime timing and refresh configuration.
+    config: Config,
 }
 
-impl<SPI, DC, RST, BUSY, DELAY> Display<SPI, DC, RST, BUSY, DELAY>
+impl<SPI, DC, RST, BUSY, DELAY, PinError> Display<SPI, DC, RST, BUSY, DELAY>
 where
     SPI: SpiDevice<u8>,
-    DC: OutputPin,
-    RST: OutputPin,
-    BUSY: InputPin,
+    DC: OutputPin<Error = PinError>,
+    RST: OutputPin<Error = PinError>,
+    BUSY: InputPin<Error = PinError>,
     DELAY: DelayNs,
 {
-    /// Creates a display driver and initially deselects the display.
+    /// Creates a display driver with the supplied interface and configuration.
     pub fn new(
         spi: SPI,
         pin_dc: DC,
         pin_reset: RST,
         pin_busy: BUSY,
         delay: DELAY,
+        config: Config,
     ) -> Self {
         Self {
             spi,
@@ -72,32 +73,34 @@ where
             pin_reset,
             pin_busy,
             delay,
+            config,
         }
     }
 
-    /// Returns ownership of the SPI device and all control pins.
+    /// Returns ownership of the SPI device, pins, and delay provider.
     pub fn release(self) -> (SPI, DC, RST, BUSY, DELAY) {
-        (self.spi, self.pin_dc, self.pin_reset, self.pin_busy, self.delay)
+        (
+            self.spi,
+            self.pin_dc,
+            self.pin_reset,
+            self.pin_busy,
+            self.delay,
+        )
     }
 
-    /// Performs a hardware reset.
+    /// Performs a hardware reset and waits until the controller is ready.
     ///
     /// # Errors
     ///
-    /// Returns [`EpdError::Pin`] if the reset pin cannot be changed.
-    pub fn reset(&mut self) -> Result<(), EpdError<SPI::Error>> {
-        //self.pin_reset.set_high().map_err(|_| EpdError::Pin)?;
-        //self.delay.delay_ms(20);
-
-        self.pin_reset.set_low().map_err(|_| EpdError::Pin)?;
+    /// Returns [`Error::Pin`] if the reset pin cannot be changed.
+    pub fn reset(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.pin_reset.set_low().map_err(Error::Pin)?;
         self.delay.delay_us(200);
 
-        self.pin_reset.set_high().map_err(|_| EpdError::Pin)?;
+        self.pin_reset.set_high().map_err(Error::Pin)?;
         self.delay.delay_us(200);
 
-        self.wait_until_idle(BUSY_TIMEOUT_MS)?;
-
-        Ok(())
+        self.wait_until_idle()
     }
 
     /// Initializes the display controller.
@@ -109,16 +112,17 @@ where
     ///
     /// Returns:
     ///
-    /// - [`EpdError::Spi`] if an SPI transfer fails;
-    /// - [`EpdError::Pin`] if a GPIO operation fails;
-    /// - [`EpdError::BusyTimeout`] if the controller does not become idle.
-    pub fn init(&mut self) -> Result<(), EpdError<SPI::Error>> {
+    /// - [`Error::Spi`] if an SPI transfer fails;
+    /// - [`Error::Pin`] if a GPIO operation fails;
+    /// - [`Error::BusyTimeout`] if the controller does not become idle.
+    pub fn init(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.reset()?;
 
         self.send_command(Command::SoftwareReset)?;
-        self.wait_until_idle(BUSY_TIMEOUT_MS)?;
+        self.wait_until_idle()?;
 
         self.send_command(Command::DriverOutputControl)?;
+        // Configure 184 gate lines (184 - 1 = 0x00B7) with default scan settings.
         self.send_data(&[0xB7, 0x00, 0x00])?;
 
         self.send_command(Command::DataEntryModeSetting)?;
@@ -135,51 +139,47 @@ where
         self.send_command(Command::DisplayUpdateControl1)?;
         self.send_data(&DISPLAY_UPDATE_CONTROL1)?;
 
-        self.set_ram_cursor(0, 0)?;
-
-        Ok(())
+        self.set_ram_cursor(0, 0)
     }
 
     /// Writes the complete framebuffer and performs a full refresh.
+    ///
+    /// When [`Config::wait_after_refresh`] is `false`, this method returns
+    /// immediately after triggering the refresh.
     ///
     /// # Errors
     ///
     /// Returns an error if SPI or GPIO communication fails, or if the
     /// controller does not become idle before the timeout.
-    pub fn show_full(&mut self, buffer: &[u8; BUFFER_SIZE]) -> Result<(), EpdError<SPI::Error>> {
+    pub fn show_full(
+        &mut self,
+        framebuffer: &FrameBuffer,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
         self.set_full_ram_window()?;
         self.set_ram_cursor(0, 0)?;
 
         self.send_command(Command::WriteRam)?;
-        self.send_data(buffer)?;
+        self.send_data(framebuffer.as_bytes())?;
 
         self.refresh_full()
     }
 
     /// Writes one byte-aligned framebuffer region and performs a partial refresh.
     ///
-    /// The region's X coordinate and width must both be divisible by eight.
+    /// Create regions with [`Region::new`]. When
+    /// [`Config::wait_after_refresh`] is `false`, this method returns
+    /// immediately after triggering the refresh.    
     ///
     /// # Errors
     ///
-    /// Returns:
-    ///
-    /// - [`EpdError::InvalidRegion`] if the region is empty or out of bounds;
-    /// - [`EpdError::UnalignedRegion`] if X or width is not byte-aligned;
-    /// - an SPI, pin, or busy-timeout error if the update fails.
+    /// Returns an SPI, GPIO, or BUSY-timeout error if the update fails.
     pub fn show_partial(
         &mut self,
         framebuffer: &FrameBuffer,
         region: Region,
-    ) -> Result<(), EpdError<SPI::Error>> {
-        self.validate_region(region)?;
+    ) -> Result<(), Error<SPI::Error, PinError>> {
         self.set_partial_ram_window(region)?;
-
-        let x_byte = u8::try_from(region.x / 8).map_err(|_| EpdError::InvalidRegion)?;
-
-        let y = u16::try_from(region.y).map_err(|_| EpdError::InvalidRegion)?;
-
-        self.set_ram_cursor(x_byte, y)?;
+        self.set_ram_cursor(region.x_byte(), region.y_u16())?;
         self.write_partial_ram(framebuffer, region)?;
         self.refresh_partial()
     }
@@ -190,93 +190,61 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`EpdError::Spi`] or [`EpdError::Pin`] if the sleep command
+    /// Returns [`Error::Spi`] or [`Error::Pin`] if the sleep command
     /// cannot be sent.
-    pub fn sleep(&mut self) -> Result<(), EpdError<SPI::Error>> {
+    pub fn sleep(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DeepSleepMode)?;
         self.send_data(&[0x01])
     }
 
-    /// Sends one command byte.
-    fn send_command(&mut self, command: Command) -> Result<(), EpdError<SPI::Error>> {
-        self.pin_dc.set_low().map_err(|_| EpdError::Pin)?;
-        
-        self.spi.write(&[command as u8]).map_err(EpdError::Spi)
-
-        //write_result.map_err(EpdError::Spi)?;
-        //deselect_result.map_err(|_| EpdError::Pin)?;
-
-        //Ok(())
+    fn send_command(&mut self, command: Command) -> Result<(), Error<SPI::Error, PinError>> {
+        self.pin_dc.set_low().map_err(Error::Pin)?;
+        self.spi.write(&[command as u8]).map_err(Error::Spi)
     }
 
-    /// Sends data bytes belonging to a command.
-    fn send_data(&mut self, data: &[u8]) -> Result<(), EpdError<SPI::Error>> {
-        self.pin_dc.set_high().map_err(|_| EpdError::Pin)?;
-
-        self.spi.write(data).map_err(EpdError::Spi)
-
-        // write_result.map_err(EpdError::Spi)?;
-        // deselect_result.map_err(|_| EpdError::Pin)?;
-
-        //Ok(())
+    fn send_data(&mut self, data: &[u8]) -> Result<(), Error<SPI::Error, PinError>> {
+        self.pin_dc.set_high().map_err(Error::Pin)?;
+        self.spi.write(data).map_err(Error::Spi)
     }
 
     /// Triggers a complete display refresh.
-    fn refresh_full(&mut self) -> Result<(), EpdError<SPI::Error>> {
+    fn refresh_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[FULL_REFRESH_SEQUENCE])?;
 
         self.send_command(Command::MasterActivation)?;
 
-        self.wait_until_idle(BUSY_TIMEOUT_MS)
+        self.wait_after_refresh_if_configured()
     }
 
     /// Triggers a partial display refresh.
-    fn refresh_partial(&mut self) -> Result<(), EpdError<SPI::Error>> {
+    fn refresh_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[PARTIAL_REFRESH_CONTROL])?;
-
         self.send_command(Command::MasterActivation)?;
-
-        self.wait_until_idle(BUSY_TIMEOUT_MS)
+        self.wait_after_refresh_if_configured()
     }
 
-    /// Waits until the display is ready or the timeout is reached.
-    fn wait_until_idle(&mut self, timeout_ms: u32) -> Result<(), EpdError<SPI::Error>> {
-        let mut elapsed_ms = 0;
-
-        while self.pin_busy.is_high().map_err(|_| EpdError::Pin)? {
-            if elapsed_ms >= timeout_ms {
-                return Err(EpdError::BusyTimeout);
-            }
-
-            self.delay.delay_ms(10);
-            elapsed_ms += 10;
+    fn wait_after_refresh_if_configured(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        if self.config.wait_after_refresh {
+            self.wait_until_idle()?;
         }
 
         Ok(())
     }
 
-    /// Validates a partial-update region.
-    fn validate_region(&self, region: Region) -> Result<(), EpdError<SPI::Error>> {
-        if region.width == 0 || region.height == 0 {
-            return Err(EpdError::InvalidRegion);
-        }
+    /// Waits until the display is ready or configured timeout is reached.
+    fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        let mut elapsed_us = 0u32;
+        let poll_interval_us = self.config.busy_poll_interval_us.max(1);
 
-        let Some(x_end) = region.x.checked_add(region.width) else {
-            return Err(EpdError::InvalidRegion);
-        };
+        while self.pin_busy.is_high().map_err(Error::Pin)? {
+            if elapsed_us >= self.config.busy_timeout_us {
+                return Err(Error::BusyTimeout);
+            }
 
-        let Some(y_end) = region.y.checked_add(region.height) else {
-            return Err(EpdError::InvalidRegion);
-        };
-
-        if x_end > WIDTH || y_end > HEIGHT {
-            return Err(EpdError::InvalidRegion);
-        }
-
-        if region.x % 8 != 0 || region.width % 8 != 0 {
-            return Err(EpdError::UnalignedRegion);
+            self.delay.delay_us(poll_interval_us);
+            elapsed_us = elapsed_us.saturating_add(poll_interval_us);
         }
 
         Ok(())
@@ -284,37 +252,26 @@ where
 
     /// Selects the entire display RAM area.
     #[allow(clippy::cast_possible_truncation)]
-    fn set_full_ram_window(&mut self) -> Result<(), EpdError<SPI::Error>> {
+    fn set_full_ram_window(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::SetRamXAddressStartEnd)?;
         self.send_data(&[0, (ROW_BYTES - 1) as u8])?;
 
         self.send_command(Command::SetRamYAddressStartEnd)?;
-        self.send_data(&[0, 0, ((HEIGHT - 1) & 0xFF) as u8, ((HEIGHT - 1) >> 8) as u8])?;
-
-        Ok(())
+        self.send_data(&[0, 0, ((HEIGHT - 1) & 0xFF) as u8, ((HEIGHT - 1) >> 8) as u8])
     }
 
-    /// Selects a byte-aligned rectangular RAM area.
-    #[allow(clippy::cast_possible_truncation)]
-    fn set_partial_ram_window(&mut self, region: Region) -> Result<(), EpdError<SPI::Error>> {
-        let x_start_byte = region.x / 8;
-        let x_end_byte = (region.x + region.width) / 8 - 1;
-
-        let y_start = region.y;
-        let y_end = region.y + region.height - 1;
-
+    fn set_partial_ram_window(
+        &mut self,
+        region: Region,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::SetRamXAddressStartEnd)?;
-        self.send_data(&[x_start_byte as u8, x_end_byte as u8])?;
+        self.send_data(&[region.x_byte(), region.x_end_byte()])?;
+
+        let y_start = region.y_u16().to_le_bytes();
+        let y_end = region.y_end_u16().to_le_bytes();
 
         self.send_command(Command::SetRamYAddressStartEnd)?;
-        self.send_data(&[
-            (y_start & 0xFF) as u8,
-            (y_start >> 8) as u8,
-            (y_end & 0xFF) as u8,
-            (y_end >> 8) as u8,
-        ])?;
-
-        Ok(())
+        self.send_data(&[y_start[0], y_start[1], y_end[0], y_end[1]])
     }
 
     /// Writes only the framebuffer bytes belonging to a region.
@@ -322,17 +279,14 @@ where
         &mut self,
         framebuffer: &FrameBuffer,
         region: Region,
-    ) -> Result<(), EpdError<SPI::Error>> {
-        let start_byte = region.x / 8;
-        let bytes_per_row = region.width / 8;
+    ) -> Result<(), Error<SPI::Error, PinError>> {
         let framebuffer_bytes = framebuffer.as_bytes();
 
         self.send_command(Command::WriteRam)?;
 
-        for y in region.y..region.y + region.height {
-            let row_start = y * ROW_BYTES + start_byte;
-            let row_end = row_start + bytes_per_row;
-
+        for y in region.y()..region.end_y_exclusive() {
+            let row_start = y * ROW_BYTES + region.start_byte();
+            let row_end = row_start + region.bytes_per_row();
             self.send_data(&framebuffer_bytes[row_start..row_end])?;
         }
 
@@ -341,13 +295,11 @@ where
 
     /// Sets the display RAM write cursor.
     #[allow(clippy::cast_possible_truncation)]
-    fn set_ram_cursor(&mut self, x_byte: u8, y: u16) -> Result<(), EpdError<SPI::Error>> {
+    fn set_ram_cursor(&mut self, x_byte: u8, y: u16) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::SetRamXAddressCounter)?;
         self.send_data(&[x_byte])?;
 
         self.send_command(Command::SetRamYAddressCounter)?;
-        self.send_data(&[(y & 0xFF) as u8, (y >> 8) as u8])?;
-
-        Ok(())
+        self.send_data(&[(y & 0xFF) as u8, (y >> 8) as u8])
     }
 }

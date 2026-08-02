@@ -1,3 +1,5 @@
+use crate::{FrameBufferError, RegionError};
+
 /// Display width in pixels.
 pub const WIDTH: usize = 88;
 
@@ -31,45 +33,112 @@ impl Color {
 
 /// A rectangular area of the display.
 ///
-/// The X coordinate and width must be aligned to complete bytes,
-/// meaning both must be divisible by 8.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The X coordinate and width are always aligned to complete framebuffer
+/// bytes. Instances can therefore only be created through [`Region::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Region {
     /// Horizontal start coordinate in pixels.
-    pub x: usize,
+    pub(crate) x: usize,
 
     /// Vertical start coordinate in pixels.
-    pub y: usize,
+    pub(crate) y: usize,
 
     /// Region width in pixels.
-    pub width: usize,
+    pub(crate) width: usize,
 
     /// Region height in pixels.
-    pub height: usize,
+    pub(crate) height: usize,
 }
 
 impl Region {
-    /// Creates a rectangular display region.
-    #[must_use]
-    pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self {
-        Self {
+    /// Creates a valid byte-aligned display region.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RegionError::Invalid`] if the region is empty, overflows, or
+    /// extends beyond the display bounds.
+    ///
+    /// Returns [`RegionError::Unaligned`] if `x` or `width` is not divisible
+    /// by eight.
+    pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Result<Self, RegionError> {
+        if width == 0 || height == 0 {
+            return Err(RegionError::Invalid);
+        }
+
+        if x % 8 != 0 || width % 8 != 0 {
+            return Err(RegionError::Unaligned);
+        }
+
+        let Some(end_x) = x.checked_add(width) else {
+            return Err(RegionError::Invalid);
+        };
+
+        let Some(end_y) = y.checked_add(height) else {
+            return Err(RegionError::Invalid);
+        };
+
+        if end_x > WIDTH || end_y > HEIGHT {
+            return Err(RegionError::Invalid);
+        }
+
+        Ok(Self {
             x,
             y,
             width,
             height,
-        }
+        })
     }
 
-    /// Returns the horizontal end coordinate, excluding that coordinate.
     #[must_use]
-    pub const fn x_end(self) -> Option<usize> {
-        self.x.checked_add(self.width)
+    pub const fn x(&self) -> usize {
+        self.x
     }
 
-    /// Returns the vertical end coordinate, excluding that coordinate.
     #[must_use]
-    pub const fn y_end(self) -> Option<usize> {
-        self.y.checked_add(self.height)
+    pub const fn y(&self) -> usize {
+        self.y
+    }
+
+    #[must_use]
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    #[must_use]
+    pub const fn height(&self) -> usize {
+        self.height
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) const fn x_byte(&self) -> u8 {
+        (self.x / 8) as u8
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) const fn x_end_byte(&self) -> u8 {
+        ((self.x + self.width) / 8 - 1) as u8
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) const fn y_u16(&self) -> u16 {
+        self.y as u16
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) const fn y_end_u16(&self) -> u16 {
+        (self.y + self.height - 1) as u16
+    }
+
+    pub(crate) const fn start_byte(&self) -> usize {
+        self.x / 8
+    }
+
+    pub(crate) const fn bytes_per_row(&self) -> usize {
+        self.width / 8
+    }
+
+    pub(crate) const fn end_y_exclusive(&self) -> usize {
+        self.y + self.height
     }
 }
 
@@ -83,8 +152,14 @@ impl FrameBuffer {
     /// Creates a framebuffer with every pixel set to white.
     #[must_use]
     pub const fn new() -> Self {
+        Self::filled(Color::White)
+    }
+
+    /// Creates a framebuffer filled entirely with the given color.
+    #[must_use]
+    pub const fn filled(color: Color) -> Self {
         Self {
-            data: [0xFF; BUFFER_SIZE],
+            data: [color.fill_byte(); BUFFER_SIZE],
         }
     }
 
@@ -101,10 +176,13 @@ impl FrameBuffer {
 
     /// Sets one pixel to black or white.
     ///
-    /// Coordinates outside the display are ignored.
-    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
+    /// # Errors
+    ///
+    /// Returns [`FrameBufferError::OutOfBounds`] when the coordinates are outside
+    /// the display.
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) -> Result<(), FrameBufferError> {
         if x >= WIDTH || y >= HEIGHT {
-            return;
+            return Err(FrameBufferError::OutOfBounds);
         }
 
         let byte_index = y * ROW_BYTES + x / 8;
@@ -115,15 +193,19 @@ impl FrameBuffer {
             Color::Black => self.data[byte_index] &= !mask,
             Color::White => self.data[byte_index] |= mask,
         }
+
+        Ok(())
     }
 
-    /// Returns the colour of one pixel.
+    /// Returns the color of one pixel.
     ///
-    /// Returns `None` when the coordinates are outside the display.
-    #[must_use]
-    pub fn pixel(&self, x: usize, y: usize) -> Option<Color> {
+    /// # Errors
+    ///
+    /// Returns [`FrameBufferError::OutOfBounds`] if the coordinates are outside
+    /// the display.
+    pub fn color_of_pixel(&self, x: usize, y: usize) -> Result<Color, FrameBufferError> {
         if x >= WIDTH || y >= HEIGHT {
-            return None;
+            return Err(FrameBufferError::OutOfBounds);
         }
 
         let byte_index = y * ROW_BYTES + x / 8;
@@ -131,9 +213,9 @@ impl FrameBuffer {
         let mask = 1u8 << bit_index;
 
         if self.data[byte_index] & mask == 0 {
-            Some(Color::Black)
+            Ok(Color::Black)
         } else {
-            Some(Color::White)
+            Ok(Color::White)
         }
     }
 }
