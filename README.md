@@ -14,6 +14,8 @@ The driver is platform-independent and can be used with any microcontroller plat
 - Configurable BUSY timeout and polling interval
 - Optional non-blocking refresh triggering
 - Deep sleep support
+- Compatible with the embedded-graphics ecosystem
+- Supports primitives, text, images, and custom drawables
 
 ## Supported hardware
 
@@ -30,14 +32,14 @@ epd-gdem0097t61 = "0.1"
 
 ## Configuration
 
-`Config::default()` uses a 15-second BUSY timeout, a 100-microsecond polling interval, and waits for refresh operations to finish.
+`Config::default()` uses a 15-second BUSY timeout, a 10_000-microsecond polling interval, and waits for refresh operations to finish.
 
 ```rust
 use epd_gdem0097t61::Config;
 
 let config = Config {
     busy_timeout_us: 15_000_000,
-    busy_poll_interval_us: 100,
+    busy_poll_interval_us: 10_000,
     wait_after_refresh: true,
 };
 ```
@@ -123,6 +125,17 @@ assert_eq!(
     Ok(Color::Black)
 );
 ```
+
+## Embedded graphics
+
+`FrameBuffer` implements the relevant `embedded-graphics-core` traits and can be used as an `embedded-graphics` draw target.
+
+Drawing operations only modify the in-memory framebuffer. Use `show_full()` or `show_partial()` afterward to transfer it to the display.
+
+See the examples:
+
+- `examples/graphics_primitives.rs`
+- `examples/graphics_text.rs`
 
 ## Public API
 

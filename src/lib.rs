@@ -101,6 +101,7 @@ mod config;
 mod driver;
 mod error;
 mod framebuffer;
+mod graphics;
 
 pub use config::Config;
 pub use driver::Display;
