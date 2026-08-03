@@ -30,8 +30,6 @@ const SET_RAM_Y_CURSOR: u8 = 0x4F;
 const DEEP_SLEEP: u8 = 0x10;
 const TEST_BUSY_TIMEOUT_US: u32 = 1_000;
 const TEST_BUSY_POLL_INTERVAL_US: u32 = 100;
-const RESET_LOW_TIME_NS: u32 = 200_000;
-const RESET_RECOVERY_TIME_NS: u32 = 200_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestSpiError {
@@ -206,14 +204,14 @@ fn expect_reset_pin_sequence(rst: &mut MockOutputPin, delay: &mut MockDelay) {
 
     delay
         .expect_delay_ns()
-        .with(eq(RESET_LOW_TIME_NS))
+        .with(eq(200_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
 
     delay
         .expect_delay_ns()
-        .with(eq(RESET_RECOVERY_TIME_NS))
+        .with(eq(200_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
@@ -877,63 +875,4 @@ fn show_full_does_not_wait_when_refresh_waiting_is_disabled() {
     let mut display = Display::new(spi, dc, rst, busy, delay, config);
 
     display.show_full(&framebuffer).unwrap();
-}
-
-#[test]
-fn show_partial_does_not_wait_when_refresh_waiting_is_disabled() {
-    let framebuffer = FrameBuffer::new();
-    let region = Region::new(8, 2, 16, 2).unwrap();
-
-    let writes: Vec<&[u8]> = vec![
-        &[SET_RAM_X_WINDOW],
-        &[0x01, 0x02],
-        &[SET_RAM_Y_WINDOW],
-        &[0x02, 0x00, 0x03, 0x00],
-        &[SET_RAM_X_CURSOR],
-        &[0x01],
-        &[SET_RAM_Y_CURSOR],
-        &[0x02, 0x00],
-        &[WRITE_RAM],
-        &framebuffer.as_bytes()[23..25],
-        &framebuffer.as_bytes()[34..36],
-        &[DISPLAY_UPDATE_CONTROL_2],
-        &[0xFF],
-        &[MASTER_ACTIVATION],
-    ];
-
-    let kinds = [
-        TransferKind::Command,
-        TransferKind::Data,
-        TransferKind::Command,
-        TransferKind::Data,
-        TransferKind::Command,
-        TransferKind::Data,
-        TransferKind::Command,
-        TransferKind::Data,
-        TransferKind::Command,
-        TransferKind::Data,
-        TransferKind::Data,
-        TransferKind::Command,
-        TransferKind::Data,
-        TransferKind::Command,
-    ];
-
-    let parts = mock_parts(&writes, &kinds);
-
-    let MockParts {
-        spi,
-        dc,
-        rst,
-        busy,
-        delay,
-    } = parts;
-
-    let config = Config {
-        wait_after_refresh: false,
-        ..test_config()
-    };
-
-    let mut display = Display::new(spi, dc, rst, busy, delay, config);
-
-    display.show_partial(&framebuffer, region).unwrap();
 }

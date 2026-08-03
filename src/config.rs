@@ -18,7 +18,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             busy_timeout_us: 15_000_000,
-            busy_poll_interval_us: 10_000,
+            busy_poll_interval_us: 100,
             wait_after_refresh: true,
         }
     }
