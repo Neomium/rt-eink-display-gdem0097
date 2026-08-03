@@ -16,6 +16,7 @@ const RESET_LOW_TIME_US: u32 = 200;
 
 /// Time allowed after releasing the hardware reset pin.
 const RESET_RECOVERY_TIME_US: u32 = 200;
+
 /// Display-update control value used for a full refresh.
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
 
