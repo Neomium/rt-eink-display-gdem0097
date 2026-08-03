@@ -11,6 +11,12 @@ use crate::{
     framebuffer::{FrameBuffer, HEIGHT, ROW_BYTES, Region},
 };
 
+/// Time for which the hardware reset pin is held low.
+const RESET_LOW_TIME_US: u32 = 200;
+
+/// Time allowed after releasing the hardware reset pin.
+const RESET_RECOVERY_TIME_US: u32 = 200;
+
 /// Display-update control value used for a full refresh.
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
 
@@ -92,13 +98,16 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Pin`] if the reset pin cannot be changed.
+    /// Returns:
+    ///
+    /// - [`Error::Pin`] if the reset or BUSY pin operation fails;
+    /// - [`Error::BusyTimeout`] if the display does not become idle.
     pub fn reset(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_reset.set_low().map_err(Error::Pin)?;
-        self.delay.delay_us(200);
+        self.delay.delay_us(RESET_LOW_TIME_US);
 
         self.pin_reset.set_high().map_err(Error::Pin)?;
-        self.delay.delay_us(200);
+        self.delay.delay_us(RESET_RECOVERY_TIME_US);
 
         self.wait_until_idle()
     }
@@ -149,8 +158,12 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an error if SPI or GPIO communication fails, or if the
-    /// controller does not become idle before the timeout.
+    /// Returns:
+    ///
+    /// - [`Error::Spi`] if an SPI transfer fails;
+    /// - [`Error::Pin`] if a GPIO operation fails;
+    /// - [`Error::BusyTimeout`] if refresh waiting is enabled and the display
+    ///   does not become idle before the configured timeout.
     pub fn show_full(
         &mut self,
         framebuffer: &FrameBuffer,
@@ -172,7 +185,12 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an SPI, GPIO, or BUSY-timeout error if the update fails.
+    /// Returns:
+    ///
+    /// - [`Error::Spi`] if an SPI transfer fails;
+    /// - [`Error::Pin`] if a GPIO operation fails;
+    /// - [`Error::BusyTimeout`] if refresh waiting is enabled and the display
+    ///   does not become idle before the configured timeout.
     pub fn show_partial(
         &mut self,
         framebuffer: &FrameBuffer,

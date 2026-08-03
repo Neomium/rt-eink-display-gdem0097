@@ -876,3 +876,62 @@ fn show_full_does_not_wait_when_refresh_waiting_is_disabled() {
 
     display.show_full(&framebuffer).unwrap();
 }
+
+#[test]
+fn show_partial_does_not_wait_when_refresh_waiting_is_disabled() {
+    let framebuffer = FrameBuffer::new();
+    let region = Region::new(8, 2, 16, 2).unwrap();
+
+    let writes: Vec<&[u8]> = vec![
+        &[SET_RAM_X_WINDOW],
+        &[0x01, 0x02],
+        &[SET_RAM_Y_WINDOW],
+        &[0x02, 0x00, 0x03, 0x00],
+        &[SET_RAM_X_CURSOR],
+        &[0x01],
+        &[SET_RAM_Y_CURSOR],
+        &[0x02, 0x00],
+        &[WRITE_RAM],
+        &framebuffer.as_bytes()[23..25],
+        &framebuffer.as_bytes()[34..36],
+        &[DISPLAY_UPDATE_CONTROL_2],
+        &[0xFF],
+        &[MASTER_ACTIVATION],
+    ];
+
+    let kinds = [
+        TransferKind::Command,
+        TransferKind::Data,
+        TransferKind::Command,
+        TransferKind::Data,
+        TransferKind::Command,
+        TransferKind::Data,
+        TransferKind::Command,
+        TransferKind::Data,
+        TransferKind::Command,
+        TransferKind::Data,
+        TransferKind::Data,
+        TransferKind::Command,
+        TransferKind::Data,
+        TransferKind::Command,
+    ];
+
+    let parts = mock_parts(&writes, &kinds);
+
+    let MockParts {
+        spi,
+        dc,
+        rst,
+        busy,
+        delay,
+    } = parts;
+
+    let config = Config {
+        wait_after_refresh: false,
+        ..test_config()
+    };
+
+    let mut display = Display::new(spi, dc, rst, busy, delay, config);
+
+    display.show_partial(&framebuffer, region).unwrap();
+}
