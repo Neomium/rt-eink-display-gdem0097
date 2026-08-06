@@ -158,7 +158,7 @@ where
     /// immediately after triggering the refresh.
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns:
     ///
     /// - [`Error::Spi`] if an SPI transfer fails;
