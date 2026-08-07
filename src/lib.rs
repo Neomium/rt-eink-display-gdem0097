@@ -107,6 +107,7 @@ pub use config::Config;
 pub use driver::Display;
 pub use error::{Error, FrameBufferError, RegionError};
 pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH};
+pub use graphics::LandscapeFrameBuffer;
 
 #[cfg(test)]
 mod tests;
