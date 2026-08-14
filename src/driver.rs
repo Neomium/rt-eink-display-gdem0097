@@ -12,10 +12,10 @@ use crate::{
 };
 
 /// Time for which the hardware reset pin is held low.
-const RESET_LOW_TIME_US: u32 = 200;
+pub(crate) const RESET_LOW_TIME_NS: u32 = 200_000;
 
 /// Time allowed after releasing the hardware reset pin.
-const RESET_RECOVERY_TIME_US: u32 = 200;
+pub(crate) const RESET_RECOVERY_TIME_NS: u32 = 200_000;
 
 /// Display-update control value used for a full refresh.
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
@@ -104,10 +104,10 @@ where
     /// - [`Error::BusyTimeout`] if the display does not become idle.
     pub fn reset(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_reset.set_low().map_err(Error::Pin)?;
-        self.delay.delay_us(RESET_LOW_TIME_US);
+        self.delay.delay_ns(RESET_LOW_TIME_NS);
 
         self.pin_reset.set_high().map_err(Error::Pin)?;
-        self.delay.delay_us(RESET_RECOVERY_TIME_US);
+        self.delay.delay_ns(RESET_RECOVERY_TIME_NS);
 
         self.wait_until_idle()
     }

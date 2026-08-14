@@ -1,6 +1,6 @@
 /// The underlying SPI and GPIO error values are preserved so callers can
 /// inspect the original hardware error.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error<SpiError, PinError> {
     /// An SPI communication operation failed.
     Spi(SpiError),

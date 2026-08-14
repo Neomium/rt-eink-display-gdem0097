@@ -13,6 +13,7 @@ use mockall::{Sequence, mock, predicate::eq};
 use std::{vec, vec::Vec};
 
 use crate::{BUFFER_SIZE, Color, Config, Display, Error, FrameBuffer, HEIGHT, Region, WIDTH};
+use crate::driver::{RESET_LOW_TIME_NS, RESET_RECOVERY_TIME_NS};
 
 const SOFTWARE_RESET: u8 = 0x12;
 const DRIVER_OUTPUT_CONTROL: u8 = 0x01;
@@ -46,6 +47,7 @@ impl SpiError for TestSpiError {
 enum TestPinError {
     SetLowFailed,
     ReadFailed,
+    WriteFailed,
 }
 
 impl DigitalError for TestPinError {
@@ -237,6 +239,100 @@ fn reset_toggles_reset_pin_and_waits_until_idle() {
     let mut display = make_display(parts);
 
     display.reset().unwrap();
+}
+
+#[test]
+fn reset_returns_pin_error_when_reset_pin_cannot_be_set_low() {
+    let spi = MockSpi::new();
+    let dc = MockOutputPin::new();
+
+    let mut reset = MockOutputPin::new();
+    reset
+        .expect_set_low()
+        .times(1)
+        .returning(|| Err(TestPinError::WriteFailed));
+
+    let busy = MockInputPin::new();
+    let delay = MockDelay::new();
+
+    let mut display = Display::new(
+        spi,
+        dc,
+        reset,
+        busy,
+        delay,
+        Config::default(),
+    );
+
+    assert_eq!(
+        display.reset().unwrap_err(),
+        Error::Pin(TestPinError::WriteFailed)
+    );
+}
+
+#[test]
+fn reset_returns_busy_timeout_when_busy_remains_high() {
+    let spi = MockSpi::new();
+    let dc = MockOutputPin::new();
+
+    let mut reset = MockOutputPin::new();
+
+    reset
+        .expect_set_low()
+        .times(1)
+        .returning(|| Ok(()));
+
+    reset
+        .expect_set_high()
+        .times(1)
+        .returning(|| Ok(()));
+
+    let mut busy = MockInputPin::new();
+
+    busy
+        .expect_is_high()
+        .returning(|| Ok(true));
+
+    let config = Config {
+        busy_timeout_us: 500,
+        busy_poll_interval_us: 500,
+        ..Config::default()
+    };
+
+    let mut delay = MockDelay::new();
+
+    // reset(): delay after pulling RESET low
+    delay
+        .expect_delay_ns()
+        .with(eq(RESET_LOW_TIME_NS))
+        .times(1)
+        .returning(|_| ());
+    // reset(): delay after pulling RESET high
+    delay
+        .expect_delay_ns()
+        .with(eq(RESET_RECOVERY_TIME_NS))
+        .times(1)
+        .returning(|_| ());
+
+    // wait_until_idle(): BUSY polling delay
+    delay
+        .expect_delay_ns()
+        .with(eq(config.busy_poll_interval_us * 1_000))
+        .returning(|_| ());
+
+    let mut display = Display::new(
+        spi,
+        dc,
+        reset,
+        busy,
+        delay,
+        config,
+    );
+
+    assert_eq!(
+        display.reset().unwrap_err(),
+        Error::BusyTimeout
+    );
 }
 
 #[test]

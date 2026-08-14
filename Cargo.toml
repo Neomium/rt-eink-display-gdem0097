@@ -13,6 +13,7 @@ categories = ["embedded", "hardware-support", "no-std"]
 
 [features]
 default = []
+example-mocks = []
 
 [dependencies]
 embedded-hal = "1.0.0"

@@ -27,43 +27,36 @@
 //! # Full display update
 //!
 //! The target platform supplies the SPI device, GPIO pins, and delay provider.
+//! The example mocks allow this example to run without physical hardware.
 //!
-//! ```no_run
-//! use embedded_hal::{
-//!     delay::DelayNs,
-//!     digital::{InputPin, OutputPin},
-//!     spi::SpiDevice,
+//! ```rust
+//! # #[cfg(feature = "example-mocks")]
+//! # {
+//! use epd_gdem0097t61::{
+//!     example::{ExampleDelay, ExampleInputPin, ExampleOutputPin, ExampleSpiDevice},
+//!     Config, Display, FrameBuffer,
 //! };
-//! use epd_gdem0097t61::{Config, Display, Error, FrameBuffer};
 //!
-//! fn update_display<SPI, DC, RESET, BUSY, DELAY, PinError>(
-//!     spi: SPI,
-//!     pin_dc: DC,
-//!     pin_reset: RESET,
-//!     pin_busy: BUSY,
-//!     delay: DELAY,
-//! ) -> Result<(), Error<SPI::Error, PinError>>
-//! where
-//!     SPI: SpiDevice<u8>,
-//!     DC: OutputPin<Error = PinError>,
-//!     RESET: OutputPin<Error = PinError>,
-//!     BUSY: InputPin<Error = PinError>,
-//!     DELAY: DelayNs,
-//! {
-//!     let mut display = Display::new(
-//!         spi,
-//!         pin_dc,
-//!         pin_reset,
-//!         pin_busy,
-//!         delay,
-//!         Config::default(),
-//!     );
+//! let spi = ExampleSpiDevice::default();
+//! let pin_dc = ExampleOutputPin::default();
+//! let pin_reset = ExampleOutputPin::default();
+//! let pin_busy = ExampleInputPin::default();
+//! let delay = ExampleDelay::default();
 //!
-//!     let framebuffer = FrameBuffer::new();
-//!     display.init()?;
-//!     display.show_full(&framebuffer)?;
-//!     Ok(())
-//! }
+//! let mut display = Display::new(
+//!     spi,
+//!     pin_dc,
+//!     pin_reset,
+//!     pin_busy,
+//!     delay,
+//!     Config::default(),
+//! );
+//!
+//! let framebuffer = FrameBuffer::new();
+//!
+//! display.init().unwrap();
+//! display.show_full(&framebuffer).unwrap();
+//! # }
 //! ```
 //!
 //! # Non-blocking refresh trigger
@@ -109,3 +102,6 @@ pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "example-mocks")]
+pub mod example;

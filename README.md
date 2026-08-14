@@ -12,7 +12,7 @@ The driver is platform-independent and can be used with any microcontroller plat
 - Full and partial display refresh
 - Packed 1-bit framebuffer
 - Configurable BUSY timeout and polling interval
-- Optional non-blocking refresh triggering
+- Configurable blocking or non-blocking refresh behavior
 - Deep sleep support
 
 ## Supported hardware
@@ -30,14 +30,14 @@ epd-gdem0097t61 = "0.1"
 
 ## Configuration
 
-`Config::default()` uses a 15-second BUSY timeout, a 100-microsecond polling interval, and waits for refresh operations to finish.
+`Config::default()` uses a 15-second BUSY timeout, a 500-microsecond polling interval, and waits for refresh operations to finish.
 
 ```rust
 use epd_gdem0097t61::Config;
 
 let config = Config {
     busy_timeout_us: 15_000_000,
-    busy_poll_interval_us: 100,
+    busy_poll_interval_us: 500,
     wait_after_refresh: true,
 };
 ```
