@@ -1,137 +1,141 @@
 # epd-gdem0097t61
 
-A `no_std` Rust driver for the **GDEM0097T61** monochrome e-paper display using `embedded-hal` 1.0 traits.
+A `no_std` Rust driver for the GDEM0097T61 monochrome e-paper display, built on `embedded-hal` 1.0 traits.
 
-This crate provides a lightweight, synchronous interface for initializing the display, managing a framebuffer, writing image data, refreshing the screen, and entering deep sleep. It is platform-independent and can be used with any microcontroller that provides `embedded-hal` implementations.
-
----
+The driver is platform-independent and can be used with any microcontroller platform that provides compatible SPI, GPIO, and delay implementations.
 
 ## Features
 
 - `no_std`
-- Built on `embedded-hal` 1.0
-- Hardware-independent
-- Full display refresh
-- 1-bit framebuffer implementation
-- Pixel-level drawing API
+- `embedded-hal` 1.0
+- `SpiDevice` support for shared SPI buses
+- Full and partial display refresh
+- Packed 1-bit framebuffer
+- Configurable BUSY timeout and polling interval
+- Configurable blocking or non-blocking refresh behavior
 - Deep sleep support
-- No dynamic memory allocation
 
----
-
-## Supported Hardware
-
-This crate currently supports:
+## Supported hardware
 
 | Display | Resolution | Colors |
-|---------|------------|--------|
+|---|---:|---|
 | GDEM0097T61 | 88 × 184 | Black / White |
 
----
-
 ## Installation
-
-Add the crate to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 epd-gdem0097t61 = "0.1"
 ```
 
----
+## Configuration
 
-## Usage
-
-Create the driver using your platform's SPI peripheral and GPIO pins.
+`Config::default()` uses a 15-second BUSY timeout, a 500-microsecond polling interval, and waits for refresh operations to finish.
 
 ```rust
-use epd_gdem0097t61::{Color, EpdDisplay, FrameBuffer};
+use epd_gdem0097t61::Config;
 
-// Create your SPI peripheral, GPIO pins and delay implementation.
-// These are platform specific.
+let config = Config {
+    busy_timeout_us: 15_000_000,
+    busy_poll_interval_us: 500,
+    wait_after_refresh: true,
+};
+```
 
-let mut display = EpdDisplay::new(
+Set `wait_after_refresh` to `false` when the application should continue immediately after the refresh command is triggered. Reset and initialization still wait for the display controller because subsequent commands require it to be ready.
+
+## Full refresh
+
+Create the driver using platform-specific implementations of `SpiDevice`, `OutputPin`, `InputPin`, and `DelayNs`.
+
+```rust,ignore
+use epd_gdem0097t61::{Color, Config, Display, FrameBuffer};
+
+let mut display = Display::new(
     spi,
-    cs,
-    dc,
-    rst,
-    busy,
-)?;
+    pin_dc,
+    pin_reset,
+    pin_busy,
+    delay,
+    Config::default(),
+);
 
-display.init(&mut delay)?;
+display.init()?;
 
 let mut framebuffer = FrameBuffer::new();
-
 framebuffer.clear(Color::White);
+framebuffer.set_pixel(10, 20, Color::Black)?;
 
-framebuffer.set_pixel(10, 20, Color::Black);
-
-display.show_full(framebuffer.as_bytes(), &mut delay)?;
-
+display.show_full(&framebuffer)?;
 display.sleep()?;
 ```
 
----
+Chip-select handling is performed by the `SpiDevice` implementation, so the display driver does not manage a CS pin directly.
+
+## Partial refresh
+
+A partial refresh updates a validated rectangular region.
+
+```rust,ignore
+use epd_gdem0097t61::{Color, FrameBuffer, Region};
+
+let mut framebuffer = FrameBuffer::new();
+framebuffer.set_pixel(16, 20, Color::Black)?;
+
+let region = Region::new(
+    16, // x
+    16, // y
+    32, // width
+    24, // height
+)?;
+
+display.show_partial(&framebuffer, region)?;
+```
+
+Coordinates use the normal framebuffer coordinate system: `(0, 0)` is the top-left pixel, X increases to the right, and Y increases downward.
+
+Because each byte stores eight horizontal pixels, `x` and `width` must be divisible by eight. `Region::new()` also rejects empty, overflowing, and out-of-bounds regions.
 
 ## Framebuffer
 
-The display uses a packed 1-bit framebuffer.
+The display uses a packed 1-bit framebuffer:
 
-- Black pixels are stored as cleared bits (`0`)
-- White pixels are stored as set bits (`1`)
+- Black pixels are cleared bits (`0`).
+- White pixels are set bits (`1`).
+- Each byte stores eight horizontal pixels.
+- The most significant bit represents the leftmost pixel in a byte.
 
-The framebuffer size is:
+The framebuffer dimensions are:
 
-```text
-88 × 184 pixels
-2024 bytes
-```
-
-Example:
+- Width: 88 pixels
+- Height: 184 pixels
+- Bytes per row: 11
+- Buffer size: 2024 bytes
 
 ```rust
-let mut framebuffer = FrameBuffer::new();
+use epd_gdem0097t61::{Color, FrameBuffer};
 
-framebuffer.clear(Color::White);
+let mut framebuffer = FrameBuffer::filled(Color::White);
+framebuffer.set_pixel(20, 30, Color::Black).unwrap();
 
-framebuffer.set_pixel(0, 0, Color::Black);
-framebuffer.set_pixel(20, 30, Color::Black);
+assert_eq!(
+    framebuffer.color_of_pixel(20, 30),
+    Ok(Color::Black)
+);
 ```
-
----
 
 ## Public API
 
-The crate exposes:
+The crate exposes `Display`, `Config`, `FrameBuffer`, `Color`, `Region`, `Error`, `RegionError`, `FrameBufferError`, and the display-size constants.
 
-```rust
-EpdDisplay
-FrameBuffer
-Color
-WIDTH
-HEIGHT
-ROW_BYTES
-BUFFER_SIZE
-EpdError
-```
+## Releases
 
----
+CI runs formatting, Clippy, tests, documentation, feature checks, and an MSRV check on every push and pull request.
 
-## Error Handling
+Publishing uses crates.io Trusted Publishing, so no long-lived crates.io token is stored in GitHub. Before the first automated release:
 
-Operations return:
+1. Create a GitHub environment named `release` and add any desired deployment protection rules.
+2. On crates.io, configure this repository as a trusted publisher for the `release.yml` workflow and the `release` environment.
+3. Update the package version in `Cargo.toml`, then push a matching tag such as `v0.2.0`.
 
-```rust
-Result<T, EpdError<_>>
-```
-
-Possible errors include:
-
-- SPI communication failure
-- GPIO failure
-- Busy timeout
-
-
-
-
-
+A valid version tag publishes the crate to crates.io and creates a GitHub release containing the packaged `.crate` archive.

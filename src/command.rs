@@ -1,7 +1,7 @@
 /// Guarantees each command is stored as a u8
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Command {                
+pub(crate) enum Command {
     DriverOutputControl = 0x01,
 
     DeepSleepMode = 0x10,
