@@ -12,8 +12,8 @@ use mockall::{Sequence, mock, predicate::eq};
 
 use std::{vec, vec::Vec};
 
-use crate::{BUFFER_SIZE, Color, Config, Display, Error, FrameBuffer, HEIGHT, Region, WIDTH};
 use crate::driver::{RESET_LOW_TIME_NS, RESET_RECOVERY_TIME_NS};
+use crate::{BUFFER_SIZE, Color, Config, Display, Error, FrameBuffer, HEIGHT, Region, WIDTH};
 
 const SOFTWARE_RESET: u8 = 0x12;
 const DRIVER_OUTPUT_CONTROL: u8 = 0x01;
@@ -255,14 +255,7 @@ fn reset_returns_pin_error_when_reset_pin_cannot_be_set_low() {
     let busy = MockInputPin::new();
     let delay = MockDelay::new();
 
-    let mut display = Display::new(
-        spi,
-        dc,
-        reset,
-        busy,
-        delay,
-        Config::default(),
-    );
+    let mut display = Display::new(spi, dc, reset, busy, delay, Config::default());
 
     assert_eq!(
         display.reset().unwrap_err(),
@@ -277,21 +270,13 @@ fn reset_returns_busy_timeout_when_busy_remains_high() {
 
     let mut reset = MockOutputPin::new();
 
-    reset
-        .expect_set_low()
-        .times(1)
-        .returning(|| Ok(()));
+    reset.expect_set_low().times(1).returning(|| Ok(()));
 
-    reset
-        .expect_set_high()
-        .times(1)
-        .returning(|| Ok(()));
+    reset.expect_set_high().times(1).returning(|| Ok(()));
 
     let mut busy = MockInputPin::new();
 
-    busy
-        .expect_is_high()
-        .returning(|| Ok(true));
+    busy.expect_is_high().returning(|| Ok(true));
 
     let config = Config {
         busy_timeout_us: 500,
@@ -320,19 +305,9 @@ fn reset_returns_busy_timeout_when_busy_remains_high() {
         .with(eq(config.busy_poll_interval_us * 1_000))
         .returning(|_| ());
 
-    let mut display = Display::new(
-        spi,
-        dc,
-        reset,
-        busy,
-        delay,
-        config,
-    );
+    let mut display = Display::new(spi, dc, reset, busy, delay, config);
 
-    assert_eq!(
-        display.reset().unwrap_err(),
-        Error::BusyTimeout
-    );
+    assert_eq!(display.reset().unwrap_err(), Error::BusyTimeout);
 }
 
 #[test]

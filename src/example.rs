@@ -14,10 +14,7 @@ impl SpiErrorType for ExampleSpiDevice {
 }
 
 impl SpiDevice<u8> for ExampleSpiDevice {
-    fn transaction(
-        &mut self,
-        _operations: &mut [Operation<'_, u8>],
-    ) -> Result<(), Self::Error> {
+    fn transaction(&mut self, _operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
         Ok(())
     }
 }

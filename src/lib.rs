@@ -1,7 +1,7 @@
 //! A `no_std` driver for the GDEM0097T61 monochrome e-paper display.
 //!
 //! The crate provides a platform-independent interface for an 88 × 184
-//! black-and-white display using [`embedded-hal`] 1.0 traits. It includes a
+//! black-and-white display using [`embedded-hal`](embedded_hal) 1.0 traits. It includes a
 //! packed one-bit [`FrameBuffer`], validated partial-update [`Region`] values,
 //! configurable BUSY-pin polling, optional non-blocking refresh triggering,
 //! and deep-sleep support.

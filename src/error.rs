@@ -12,6 +12,7 @@ pub enum Error<SpiError, PinError> {
     BusyTimeout,
 }
 
+/// Errors produced when constructing a framebuffer region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionError {
     /// The region is empty or exceeds the display bounds.
