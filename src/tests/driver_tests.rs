@@ -45,9 +45,9 @@ impl SpiError for TestSpiError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestPinError {
-    SetLowFailed,
-    ReadFailed,
-    WriteFailed,
+    SetLow,
+    Read,
+    Write,
 }
 
 impl DigitalError for TestPinError {
@@ -250,7 +250,7 @@ fn reset_returns_pin_error_when_reset_pin_cannot_be_set_low() {
     reset
         .expect_set_low()
         .times(1)
-        .returning(|| Err(TestPinError::WriteFailed));
+        .returning(|| Err(TestPinError::Write));
 
     let busy = MockInputPin::new();
     let delay = MockDelay::new();
@@ -259,7 +259,7 @@ fn reset_returns_pin_error_when_reset_pin_cannot_be_set_low() {
 
     assert_eq!(
         display.reset().unwrap_err(),
-        Error::Pin(TestPinError::WriteFailed)
+        Error::Pin(TestPinError::Write)
     );
 }
 
@@ -713,13 +713,13 @@ fn show_full_returns_pin_error_when_busy_pin_read_fails() {
         .busy
         .expect_is_high()
         .times(1)
-        .returning(|| Err(TestPinError::ReadFailed));
+        .returning(|| Err(TestPinError::Read));
 
     let mut display = make_display(parts);
 
     let error = display.show_full(&framebuffer).unwrap_err();
 
-    assert!(matches!(error, Error::Pin(TestPinError::ReadFailed)));
+    assert!(matches!(error, Error::Pin(TestPinError::Read)));
 }
 
 #[test]
@@ -840,13 +840,13 @@ fn init_returns_pin_error_when_reset_pin_cannot_be_set_low() {
         .rst
         .expect_set_low()
         .times(1)
-        .returning(|| Err(TestPinError::SetLowFailed));
+        .returning(|| Err(TestPinError::SetLow));
 
     let mut display = make_display(parts);
 
     let error = display.init().unwrap_err();
 
-    assert!(matches!(error, Error::Pin(TestPinError::SetLowFailed)));
+    assert!(matches!(error, Error::Pin(TestPinError::SetLow)));
 }
 
 #[test]

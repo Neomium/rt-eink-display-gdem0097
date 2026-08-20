@@ -127,3 +127,15 @@ assert_eq!(
 ## Public API
 
 The crate exposes `Display`, `Config`, `FrameBuffer`, `Color`, `Region`, `Error`, `RegionError`, `FrameBufferError`, and the display-size constants.
+
+## Releases
+
+CI runs formatting, Clippy, tests, documentation, feature checks, and an MSRV check on every push and pull request.
+
+Publishing uses crates.io Trusted Publishing, so no long-lived crates.io token is stored in GitHub. Before the first automated release:
+
+1. Create a GitHub environment named `release` and add any desired deployment protection rules.
+2. On crates.io, configure this repository as a trusted publisher for the `release.yml` workflow and the `release` environment.
+3. Update the package version in `Cargo.toml`, then push a matching tag such as `v0.2.0`.
+
+A valid version tag publishes the crate to crates.io and creates a GitHub release containing the packaged `.crate` archive.
