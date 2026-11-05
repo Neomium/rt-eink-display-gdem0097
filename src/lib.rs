@@ -28,15 +28,14 @@
 //!
 //! The target platform supplies the SPI device, GPIO pins, and delay provider.
 //!
-//! ```no_run
+//! ```ignore
 //! use embedded_hal::{
-//!     delay::DelayNs,
 //!     digital::{InputPin, OutputPin},
-//!     spi::SpiDevice,
 //! };
+//! use embedded_hal_async::{delay::DelayNs, spi::SpiDevice};
 //! use epd_gdem0097t61::{Config, Display, Error, FrameBuffer};
 //!
-//! fn update_display<SPI, DC, RESET, BUSY, DELAY, PinError>(
+//! async fn update_display<SPI, DC, RESET, BUSY, DELAY, PinError>(
 //!     spi: SPI,
 //!     pin_dc: DC,
 //!     pin_reset: RESET,
@@ -60,8 +59,8 @@
 //!     );
 //!
 //!     let framebuffer = FrameBuffer::new();
-//!     display.init()?;
-//!     display.show_full(&framebuffer)?;
+//!     display.init().await?;
+//!     display.show_full(&framebuffer).await?;
 //!     Ok(())
 //! }
 //! ```
