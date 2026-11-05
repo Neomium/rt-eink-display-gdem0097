@@ -32,6 +32,7 @@
 //! ```rust
 //! # #[cfg(feature = "example-mocks")]
 //! # {
+//! # async fn update() {
 //! use epd_gdem0097t61::{
 //!     example::{ExampleDelay, ExampleInputPin, ExampleOutputPin, ExampleSpiDevice},
 //!     Config, Display, FrameBuffer,
@@ -54,8 +55,15 @@
 //!
 //! let framebuffer = FrameBuffer::new();
 //!
+//! # #[cfg(not(feature = "async"))]
 //! display.init().unwrap();
+//! # #[cfg(feature = "async")]
+//! # display.init().await.unwrap();
+//! # #[cfg(not(feature = "async"))]
 //! display.show_full(&framebuffer).unwrap();
+//! # #[cfg(feature = "async")]
+//! # display.show_full(&framebuffer).await.unwrap();
+//! # }
 //! # }
 //! ```
 //!
@@ -94,11 +102,13 @@ mod config;
 mod driver;
 mod error;
 mod framebuffer;
+mod graphics;
 
 pub use config::Config;
 pub use driver::Display;
 pub use error::{Error, FrameBufferError, RegionError};
 pub use framebuffer::{BUFFER_SIZE, Color, FrameBuffer, HEIGHT, ROW_BYTES, Region, WIDTH};
+pub use graphics::LandscapeFrameBuffer;
 
 #[cfg(test)]
 mod tests;

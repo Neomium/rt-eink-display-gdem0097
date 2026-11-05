@@ -59,3 +59,18 @@ pub struct ExampleDelay;
 impl DelayNs for ExampleDelay {
     fn delay_ns(&mut self, _ns: u32) {}
 }
+
+#[cfg(feature = "async")]
+impl embedded_hal_async::spi::SpiDevice<u8> for ExampleSpiDevice {
+    async fn transaction(
+        &mut self,
+        _operations: &mut [Operation<'_, u8>],
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "async")]
+impl embedded_hal_async::delay::DelayNs for ExampleDelay {
+    async fn delay_ns(&mut self, _ns: u32) {}
+}
