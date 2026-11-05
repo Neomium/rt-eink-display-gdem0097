@@ -14,10 +14,10 @@ use crate::{
 };
 
 /// Time for which the hardware reset pin is held low.
-pub(crate) const RESET_LOW_TIME_NS: u32 = 200_000;
+pub(crate) const RESET_LOW_TIME_NS: u32 = 10_000_000;
 
 /// Time allowed after releasing the hardware reset pin.
-pub(crate) const RESET_RECOVERY_TIME_NS: u32 = 200_000;
+pub(crate) const RESET_RECOVERY_TIME_NS: u32 = 10_000_000;
 
 /// Display-update control value used for a full refresh.
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
@@ -116,6 +116,15 @@ where
         self.wait_until_idle()
     }
 
+    /// Performs a hardware reset and waits until the controller is ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    ///
+    /// - [`Error::Pin`] if the reset or BUSY pin operation fails;
+    /// - [`Error::BusyTimeout`] if the display does not become idle before
+    ///   the configured timeout.
     #[cfg(feature = "async")]
     pub async fn reset(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_reset.set_low().map_err(Error::Pin)?;
@@ -165,6 +174,18 @@ where
         self.set_ram_cursor(0, 0)
     }
 
+    /// Initializes the display controller.
+    ///
+    /// This performs a hardware reset and configures the controller's RAM,
+    /// waveform, temperature sensor, and address counters.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    ///
+    /// - [`Error::Spi`] if an SPI transfer fails;
+    /// - [`Error::Pin`] if a GPIO operation fails;
+    /// - [`Error::BusyTimeout`] if the controller does not become idle.
     #[cfg(feature = "async")]
     pub async fn init(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.reset().await?;
@@ -211,6 +232,19 @@ where
         self.refresh_full()
     }
 
+    /// Writes the complete framebuffer and performs a full refresh.
+    ///
+    /// When [`Config::wait_after_refresh`] is `false`, this method returns
+    /// immediately after triggering the refresh.
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    ///
+    /// - [`Error::Spi`] if an SPI transfer fails;
+    /// - [`Error::Pin`] if a GPIO operation fails;
+    /// - [`Error::BusyTimeout`] if refresh waiting is enabled and the display
+    ///   does not become idle before the configured timeout.
     #[cfg(feature = "async")]
     pub async fn show_full(
         &mut self,
@@ -249,6 +283,20 @@ where
         self.refresh_partial()
     }
 
+    /// Writes one byte-aligned framebuffer region and performs a partial refresh.
+    ///
+    /// Create regions with [`Region::new`]. When
+    /// [`Config::wait_after_refresh`] is `false`, this method returns
+    /// immediately after triggering the refresh.    
+    ///
+    /// # Errors
+    ///
+    /// Returns:
+    ///
+    /// - [`Error::Spi`] if an SPI transfer fails;
+    /// - [`Error::Pin`] if a GPIO operation fails;
+    /// - [`Error::BusyTimeout`] if refresh waiting is enabled and the display
+    ///   does not become idle before the configured timeout.
     #[cfg(feature = "async")]
     pub async fn show_partial(
         &mut self,
@@ -275,29 +323,42 @@ where
         self.send_data(&[0x01])
     }
 
+    /// Puts the display into deep sleep.
+    ///
+    /// The display must be reset and initialized before it can be used again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Spi`] or [`Error::Pin`] if the sleep command
+    /// cannot be sent.
     #[cfg(feature = "async")]
     pub async fn sleep(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DeepSleepMode).await?;
         self.send_data(&[0x01]).await
     }
 
+    /// Sends a controller command with D/C low.
     #[cfg(not(feature = "async"))]
     fn send_command(&mut self, command: Command) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_dc.set_low().map_err(Error::Pin)?;
         self.spi.write(&[command as u8]).map_err(Error::Spi)
     }
+
+    /// Sends a controller command with D/C low.
     #[cfg(feature = "async")]
     async fn send_command(&mut self, command: Command) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_dc.set_low().map_err(Error::Pin)?;
         self.spi.write(&[command as u8]).await.map_err(Error::Spi)
     }
 
+    /// Transfers image or register data with D/C high.
     #[cfg(not(feature = "async"))]
     fn send_data(&mut self, data: &[u8]) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_dc.set_high().map_err(Error::Pin)?;
         self.spi.write(data).map_err(Error::Spi)
     }
 
+    /// Transfers image or register data with D/C high.
     #[cfg(feature = "async")]
     async fn send_data(&mut self, data: &[u8]) -> Result<(), Error<SPI::Error, PinError>> {
         self.pin_dc.set_high().map_err(Error::Pin)?;
@@ -306,7 +367,7 @@ where
 
     /// Triggers a complete display refresh.
     #[cfg(not(feature = "async"))]
-    fn refresh_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+    pub fn refresh_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[FULL_REFRESH_SEQUENCE])?;
 
@@ -314,8 +375,10 @@ where
 
         self.wait_after_refresh_if_configured()
     }
+
+    /// Triggers a complete display refresh.
     #[cfg(feature = "async")]
-    async fn refresh_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+    pub async fn refresh_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DisplayUpdateControl2).await?;
         self.send_data(&[FULL_REFRESH_SEQUENCE]).await?;
 
@@ -326,21 +389,23 @@ where
 
     /// Triggers a partial display refresh.
     #[cfg(not(feature = "async"))]
-    fn refresh_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+    pub fn refresh_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[PARTIAL_REFRESH_CONTROL])?;
         self.send_command(Command::MasterActivation)?;
         self.wait_after_refresh_if_configured()
     }
 
+    /// Triggers a partial display refresh.
     #[cfg(feature = "async")]
-    async fn refresh_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+    pub async fn refresh_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         self.send_command(Command::DisplayUpdateControl2).await?;
         self.send_data(&[PARTIAL_REFRESH_CONTROL]).await?;
         self.send_command(Command::MasterActivation).await?;
         self.wait_after_refresh_if_configured().await
     }
 
+    /// Waits for BUSY to clear when automatic refresh waiting is enabled.
     #[cfg(not(feature = "async"))]
     fn wait_after_refresh_if_configured(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         if self.config.wait_after_refresh {
@@ -350,6 +415,7 @@ where
         Ok(())
     }
 
+    /// Waits for BUSY to clear when automatic refresh waiting is enabled.
     #[cfg(feature = "async")]
     async fn wait_after_refresh_if_configured(
         &mut self,
@@ -362,7 +428,7 @@ where
 
     /// Waits until the display is ready or configured timeout is reached.
     #[cfg(not(feature = "async"))]
-    fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+    pub fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         let mut elapsed_us = 0u32;
         let poll_interval_us = self.config.busy_poll_interval_us.max(1);
 
@@ -378,8 +444,9 @@ where
         Ok(())
     }
 
+    /// Waits until the display is ready or configured timeout is reached.
     #[cfg(feature = "async")]
-    async fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+    pub async fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
         let mut elapsed_us = 0u32;
         let poll_interval_us = self.config.busy_poll_interval_us.max(1);
         while self.pin_busy.is_high().map_err(Error::Pin)? {
@@ -403,6 +470,7 @@ where
         self.send_data(&[0, 0, ((HEIGHT - 1) & 0xFF) as u8, ((HEIGHT - 1) >> 8) as u8])
     }
 
+    /// Selects the entire display RAM area.
     #[cfg(feature = "async")]
     #[allow(clippy::cast_possible_truncation)]
     async fn set_full_ram_window(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
@@ -413,6 +481,7 @@ where
             .await
     }
 
+    /// Selects the byte-aligned RAM window covered by the supplied region.
     #[cfg(not(feature = "async"))]
     fn set_partial_ram_window(
         &mut self,
@@ -428,6 +497,7 @@ where
         self.send_data(&[y_start[0], y_start[1], y_end[0], y_end[1]])
     }
 
+    /// Selects the byte-aligned RAM window covered by the supplied region.
     #[cfg(feature = "async")]
     async fn set_partial_ram_window(
         &mut self,
@@ -463,6 +533,7 @@ where
         Ok(())
     }
 
+    /// Writes only the framebuffer bytes belonging to a region.
     #[cfg(feature = "async")]
     async fn write_partial_ram(
         &mut self,
@@ -491,6 +562,7 @@ where
         self.send_data(&[(y & 0xFF) as u8, (y >> 8) as u8])
     }
 
+    /// Sets the display RAM write cursor.
     #[cfg(feature = "async")]
     #[allow(clippy::cast_possible_truncation)]
     async fn set_ram_cursor(
@@ -502,5 +574,140 @@ where
         self.send_data(&[x_byte]).await?;
         self.send_command(Command::SetRamYAddressCounter).await?;
         self.send_data(&[(y & 0xFF) as u8, (y >> 8) as u8]).await
+    }
+
+    /// Writes the entire new-image RAM without triggering a refresh.
+    #[cfg(not(feature = "async"))]
+    pub fn write_frame(&mut self, frame: &FrameBuffer) -> Result<(), Error<SPI::Error, PinError>> {
+        self.set_full_ram_window()?;
+        self.set_ram_cursor(0, 0)?;
+        self.send_command(Command::WriteRam)?;
+        self.send_data(frame.as_bytes())
+    }
+
+    /// Writes one byte-aligned region without refreshing; batch regions before refresh_partial.
+    #[cfg(not(feature = "async"))]
+    pub fn write_region(
+        &mut self,
+        frame: &FrameBuffer,
+        region: Region,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.set_partial_ram_window(region)?;
+        self.set_ram_cursor(region.x_byte(), region.y_u16())?;
+        self.write_partial_ram(frame, region)
+    }
+
+    /// Seeds both image RAM banks before the first full refresh of a partial-update session.
+    #[cfg(not(feature = "async"))]
+    pub fn write_base_frame(
+        &mut self,
+        frame: &FrameBuffer,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.write_frame(frame)?;
+        self.write_previous_region(
+            frame,
+            Region::new(0, 0, crate::WIDTH, crate::HEIGHT).unwrap(),
+        )
+    }
+
+    /// Synchronizes previous-image RAM after a successful refresh. Never call while BUSY.
+    #[cfg(not(feature = "async"))]
+    pub fn write_previous_region(
+        &mut self,
+        frame: &FrameBuffer,
+        region: Region,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.set_partial_ram_window(region)?;
+        self.set_ram_cursor(region.x_byte(), region.y_u16())?;
+        self.send_command(Command::WritePreviousRam)?;
+        for y in region.y()..region.end_y_exclusive() {
+            let start = y * ROW_BYTES + region.start_byte();
+            self.send_data(&frame.as_bytes()[start..start + region.bytes_per_row()])?;
+        }
+        Ok(())
+    }
+
+    /// Selects the border waveform for partial updates without resetting the controller.
+    #[cfg(not(feature = "async"))]
+    pub fn prepare_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.send_command(Command::BorderWaveformControl)?;
+        self.send_data(&[0x80])
+    }
+
+    /// Restores the full-update border waveform without resetting the controller.
+    #[cfg(not(feature = "async"))]
+    pub fn prepare_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.send_command(Command::BorderWaveformControl)?;
+        self.send_data(&[BORDER_WAVEFORM])
+    }
+
+    /// Writes the entire new-image RAM without triggering a refresh.
+    #[cfg(feature = "async")]
+    pub async fn write_frame(
+        &mut self,
+        frame: &FrameBuffer,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.set_full_ram_window().await?;
+        self.set_ram_cursor(0, 0).await?;
+        self.send_command(Command::WriteRam).await?;
+        self.send_data(frame.as_bytes()).await
+    }
+
+    /// Writes one byte-aligned region without refreshing; batch regions before refresh_partial.
+    #[cfg(feature = "async")]
+    pub async fn write_region(
+        &mut self,
+        frame: &FrameBuffer,
+        region: Region,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.set_partial_ram_window(region).await?;
+        self.set_ram_cursor(region.x_byte(), region.y_u16()).await?;
+        self.write_partial_ram(frame, region).await
+    }
+
+    /// Seeds both image RAM banks before the first full refresh of a partial-update session.
+    #[cfg(feature = "async")]
+    pub async fn write_base_frame(
+        &mut self,
+        frame: &FrameBuffer,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.write_frame(frame).await?;
+        self.write_previous_region(
+            frame,
+            Region::new(0, 0, crate::WIDTH, crate::HEIGHT).unwrap(),
+        )
+        .await
+    }
+
+    /// Synchronizes previous-image RAM after a successful refresh. Never call while BUSY.
+    #[cfg(feature = "async")]
+    pub async fn write_previous_region(
+        &mut self,
+        frame: &FrameBuffer,
+        region: Region,
+    ) -> Result<(), Error<SPI::Error, PinError>> {
+        self.set_partial_ram_window(region).await?;
+        self.set_ram_cursor(region.x_byte(), region.y_u16()).await?;
+        self.send_command(Command::WritePreviousRam).await?;
+        for y in region.y()..region.end_y_exclusive() {
+            let start = y * ROW_BYTES + region.start_byte();
+            self.send_data(&frame.as_bytes()[start..start + region.bytes_per_row()])
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Selects the border waveform for partial updates without resetting the controller.
+    #[cfg(feature = "async")]
+    pub async fn prepare_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.send_command(Command::BorderWaveformControl).await?;
+        self.send_data(&[0x80]).await
+    }
+
+    /// Restores the full-update border waveform without resetting the controller.
+    #[cfg(feature = "async")]
+    pub async fn prepare_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.send_command(Command::BorderWaveformControl).await?;
+        self.send_data(&[BORDER_WAVEFORM]).await
     }
 }

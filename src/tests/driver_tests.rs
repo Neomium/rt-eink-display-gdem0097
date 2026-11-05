@@ -206,14 +206,14 @@ fn expect_reset_pin_sequence(rst: &mut MockOutputPin, delay: &mut MockDelay) {
 
     delay
         .expect_delay_ns()
-        .with(eq(200_000))
+        .with(eq(10_000_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
 
     delay
         .expect_delay_ns()
-        .with(eq(200_000))
+        .with(eq(10_000_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
@@ -874,7 +874,7 @@ fn init_returns_busy_timeout_when_display_remains_busy() {
     parts
         .delay
         .expect_delay_ns()
-        .with(eq(200_000))
+        .with(eq(10_000_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
@@ -882,7 +882,7 @@ fn init_returns_busy_timeout_when_display_remains_busy() {
     parts
         .delay
         .expect_delay_ns()
-        .with(eq(200_000))
+        .with(eq(10_000_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());

@@ -225,3 +225,24 @@ impl Default for FrameBuffer {
         Self::new()
     }
 }
+
+impl FrameBuffer {
+    /// Bounding region of changed bytes; X and width are aligned to controller RAM bytes.
+    /// Comparing with the last successfully displayed frame avoids redundant SPI transfers.
+    pub fn changed_region(&self, previous: &Self) -> Option<Region> {
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (ROW_BYTES, HEIGHT, 0, 0);
+        for (index, (new, old)) in self.data.iter().zip(previous.data.iter()).enumerate() {
+            if new != old {
+                let (x, y) = (index % ROW_BYTES, index / ROW_BYTES);
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+        if min_x == ROW_BYTES {
+            return None;
+        }
+        Region::new(min_x * 8, min_y, (max_x - min_x + 1) * 8, max_y - min_y + 1).ok()
+    }
+}

@@ -20,6 +20,9 @@ pub(crate) enum Command {
 
     WriteRam = 0x24,
 
+    /// Writes the reference image used by partial refreshes.
+    WritePreviousRam = 0x26,
+
     BorderWaveformControl = 0x3C,
 
     SetRamXAddressStartEnd = 0x44,
