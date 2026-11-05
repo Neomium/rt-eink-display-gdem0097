@@ -12,6 +12,7 @@ use mockall::{Sequence, mock, predicate::eq};
 
 use std::{vec, vec::Vec};
 
+use crate::driver::{RESET_LOW_TIME_NS, RESET_RECOVERY_TIME_NS};
 use crate::{BUFFER_SIZE, Color, Config, Display, Error, FrameBuffer, HEIGHT, Region, WIDTH};
 
 const SOFTWARE_RESET: u8 = 0x12;
@@ -30,8 +31,6 @@ const SET_RAM_Y_CURSOR: u8 = 0x4F;
 const DEEP_SLEEP: u8 = 0x10;
 const TEST_BUSY_TIMEOUT_US: u32 = 1_000;
 const TEST_BUSY_POLL_INTERVAL_US: u32 = 100;
-const RESET_LOW_TIME_NS: u32 = 200_000;
-const RESET_RECOVERY_TIME_NS: u32 = 200_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestSpiError {
@@ -46,8 +45,9 @@ impl SpiError for TestSpiError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestPinError {
-    SetLowFailed,
-    ReadFailed,
+    SetLow,
+    Read,
+    Write,
 }
 
 impl DigitalError for TestPinError {
@@ -206,14 +206,14 @@ fn expect_reset_pin_sequence(rst: &mut MockOutputPin, delay: &mut MockDelay) {
 
     delay
         .expect_delay_ns()
-        .with(eq(RESET_LOW_TIME_NS))
+        .with(eq(200_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
 
     delay
         .expect_delay_ns()
-        .with(eq(RESET_RECOVERY_TIME_NS))
+        .with(eq(200_000))
         .times(1)
         .in_sequence(&mut delay_sequence)
         .return_const(());
@@ -239,6 +239,75 @@ fn reset_toggles_reset_pin_and_waits_until_idle() {
     let mut display = make_display(parts);
 
     display.reset().unwrap();
+}
+
+#[test]
+fn reset_returns_pin_error_when_reset_pin_cannot_be_set_low() {
+    let spi = MockSpi::new();
+    let dc = MockOutputPin::new();
+
+    let mut reset = MockOutputPin::new();
+    reset
+        .expect_set_low()
+        .times(1)
+        .returning(|| Err(TestPinError::Write));
+
+    let busy = MockInputPin::new();
+    let delay = MockDelay::new();
+
+    let mut display = Display::new(spi, dc, reset, busy, delay, Config::default());
+
+    assert_eq!(
+        display.reset().unwrap_err(),
+        Error::Pin(TestPinError::Write)
+    );
+}
+
+#[test]
+fn reset_returns_busy_timeout_when_busy_remains_high() {
+    let spi = MockSpi::new();
+    let dc = MockOutputPin::new();
+
+    let mut reset = MockOutputPin::new();
+
+    reset.expect_set_low().times(1).returning(|| Ok(()));
+
+    reset.expect_set_high().times(1).returning(|| Ok(()));
+
+    let mut busy = MockInputPin::new();
+
+    busy.expect_is_high().returning(|| Ok(true));
+
+    let config = Config {
+        busy_timeout_us: 500,
+        busy_poll_interval_us: 500,
+        ..Config::default()
+    };
+
+    let mut delay = MockDelay::new();
+
+    // reset(): delay after pulling RESET low
+    delay
+        .expect_delay_ns()
+        .with(eq(RESET_LOW_TIME_NS))
+        .times(1)
+        .returning(|_| ());
+    // reset(): delay after pulling RESET high
+    delay
+        .expect_delay_ns()
+        .with(eq(RESET_RECOVERY_TIME_NS))
+        .times(1)
+        .returning(|_| ());
+
+    // wait_until_idle(): BUSY polling delay
+    delay
+        .expect_delay_ns()
+        .with(eq(config.busy_poll_interval_us * 1_000))
+        .returning(|_| ());
+
+    let mut display = Display::new(spi, dc, reset, busy, delay, config);
+
+    assert_eq!(display.reset().unwrap_err(), Error::BusyTimeout);
 }
 
 #[test]
@@ -644,13 +713,13 @@ fn show_full_returns_pin_error_when_busy_pin_read_fails() {
         .busy
         .expect_is_high()
         .times(1)
-        .returning(|| Err(TestPinError::ReadFailed));
+        .returning(|| Err(TestPinError::Read));
 
     let mut display = make_display(parts);
 
     let error = display.show_full(&framebuffer).unwrap_err();
 
-    assert!(matches!(error, Error::Pin(TestPinError::ReadFailed)));
+    assert!(matches!(error, Error::Pin(TestPinError::Read)));
 }
 
 #[test]
@@ -771,13 +840,13 @@ fn init_returns_pin_error_when_reset_pin_cannot_be_set_low() {
         .rst
         .expect_set_low()
         .times(1)
-        .returning(|| Err(TestPinError::SetLowFailed));
+        .returning(|| Err(TestPinError::SetLow));
 
     let mut display = make_display(parts);
 
     let error = display.init().unwrap_err();
 
-    assert!(matches!(error, Error::Pin(TestPinError::SetLowFailed)));
+    assert!(matches!(error, Error::Pin(TestPinError::SetLow)));
 }
 
 #[test]

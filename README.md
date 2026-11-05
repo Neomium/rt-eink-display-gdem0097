@@ -12,10 +12,8 @@ The driver is platform-independent and can be used with any microcontroller plat
 - Full and partial display refresh
 - Packed 1-bit framebuffer
 - Configurable BUSY timeout and polling interval
-- Optional non-blocking refresh triggering
+- Configurable blocking or non-blocking refresh behavior
 - Deep sleep support
-- Compatible with the embedded-graphics ecosystem
-- Supports primitives, text, images, and custom drawables
 
 ## Supported hardware
 
@@ -32,14 +30,14 @@ epd-gdem0097t61 = "0.1"
 
 ## Configuration
 
-`Config::default()` uses a 15-second BUSY timeout, a 10_000-microsecond polling interval, and waits for refresh operations to finish.
+`Config::default()` uses a 15-second BUSY timeout, a 500-microsecond polling interval, and waits for refresh operations to finish.
 
 ```rust
 use epd_gdem0097t61::Config;
 
 let config = Config {
     busy_timeout_us: 15_000_000,
-    busy_poll_interval_us: 10_000,
+    busy_poll_interval_us: 500,
     wait_after_refresh: true,
 };
 ```
@@ -126,17 +124,18 @@ assert_eq!(
 );
 ```
 
-## Embedded graphics
-
-`FrameBuffer` implements the relevant `embedded-graphics-core` traits and can be used as an `embedded-graphics` draw target.
-
-Drawing operations only modify the in-memory framebuffer. Use `show_full()` or `show_partial()` afterward to transfer it to the display.
-
-See the examples:
-
-- `examples/graphics_primitives.rs`
-- `examples/graphics_text.rs`
-
 ## Public API
 
 The crate exposes `Display`, `Config`, `FrameBuffer`, `Color`, `Region`, `Error`, `RegionError`, `FrameBufferError`, and the display-size constants.
+
+## Releases
+
+CI runs formatting, Clippy, tests, documentation, feature checks, and an MSRV check on every push and pull request.
+
+Publishing uses crates.io Trusted Publishing, so no long-lived crates.io token is stored in GitHub. Before the first automated release:
+
+1. Create a GitHub environment named `release` and add any desired deployment protection rules.
+2. On crates.io, configure this repository as a trusted publisher for the `release.yml` workflow and the `release` environment.
+3. Update the package version in `Cargo.toml`, then push a matching tag such as `v0.2.0`.
+
+A valid version tag publishes the crate to crates.io and creates a GitHub release containing the packaged `.crate` archive.

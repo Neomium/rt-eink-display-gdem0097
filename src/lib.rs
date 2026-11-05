@@ -1,7 +1,7 @@
 //! A `no_std` driver for the GDEM0097T61 monochrome e-paper display.
 //!
 //! The crate provides a platform-independent interface for an 88 × 184
-//! black-and-white display using [`embedded-hal`] 1.0 traits. It includes a
+//! black-and-white display using [`embedded-hal`](embedded_hal) 1.0 traits. It includes a
 //! packed one-bit [`FrameBuffer`], validated partial-update [`Region`] values,
 //! configurable BUSY-pin polling, optional non-blocking refresh triggering,
 //! and deep-sleep support.
@@ -27,42 +27,44 @@
 //! # Full display update
 //!
 //! The target platform supplies the SPI device, GPIO pins, and delay provider.
+//! The example mocks allow this example to run without physical hardware.
 //!
-//! ```ignore
-//! use embedded_hal::{
-//!     digital::{InputPin, OutputPin},
+//! ```rust
+//! # #[cfg(feature = "example-mocks")]
+//! # {
+//! # async fn update() {
+//! use epd_gdem0097t61::{
+//!     example::{ExampleDelay, ExampleInputPin, ExampleOutputPin, ExampleSpiDevice},
+//!     Config, Display, FrameBuffer,
 //! };
-//! use embedded_hal_async::{delay::DelayNs, spi::SpiDevice};
-//! use epd_gdem0097t61::{Config, Display, Error, FrameBuffer};
 //!
-//! async fn update_display<SPI, DC, RESET, BUSY, DELAY, PinError>(
-//!     spi: SPI,
-//!     pin_dc: DC,
-//!     pin_reset: RESET,
-//!     pin_busy: BUSY,
-//!     delay: DELAY,
-//! ) -> Result<(), Error<SPI::Error, PinError>>
-//! where
-//!     SPI: SpiDevice<u8>,
-//!     DC: OutputPin<Error = PinError>,
-//!     RESET: OutputPin<Error = PinError>,
-//!     BUSY: InputPin<Error = PinError>,
-//!     DELAY: DelayNs,
-//! {
-//!     let mut display = Display::new(
-//!         spi,
-//!         pin_dc,
-//!         pin_reset,
-//!         pin_busy,
-//!         delay,
-//!         Config::default(),
-//!     );
+//! let spi = ExampleSpiDevice::default();
+//! let pin_dc = ExampleOutputPin::default();
+//! let pin_reset = ExampleOutputPin::default();
+//! let pin_busy = ExampleInputPin::default();
+//! let delay = ExampleDelay::default();
 //!
-//!     let framebuffer = FrameBuffer::new();
-//!     display.init().await?;
-//!     display.show_full(&framebuffer).await?;
-//!     Ok(())
-//! }
+//! let mut display = Display::new(
+//!     spi,
+//!     pin_dc,
+//!     pin_reset,
+//!     pin_busy,
+//!     delay,
+//!     Config::default(),
+//! );
+//!
+//! let framebuffer = FrameBuffer::new();
+//!
+//! # #[cfg(not(feature = "async"))]
+//! display.init().unwrap();
+//! # #[cfg(feature = "async")]
+//! # display.init().await.unwrap();
+//! # #[cfg(not(feature = "async"))]
+//! display.show_full(&framebuffer).unwrap();
+//! # #[cfg(feature = "async")]
+//! # display.show_full(&framebuffer).await.unwrap();
+//! # }
+//! # }
 //! ```
 //!
 //! # Non-blocking refresh trigger
@@ -110,3 +112,6 @@ pub use graphics::LandscapeFrameBuffer;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(feature = "example-mocks")]
+pub mod example;

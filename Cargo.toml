@@ -14,6 +14,7 @@ categories = ["embedded", "hardware-support", "no-std"]
 [features]
 default = ["async"]
 async = []
+example-mocks = []
 
 [dependencies]
 embedded-hal = "1.0.0"

@@ -1,6 +1,6 @@
 /// The underlying SPI and GPIO error values are preserved so callers can
 /// inspect the original hardware error.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error<SpiError, PinError> {
     /// An SPI communication operation failed.
     Spi(SpiError),
@@ -12,6 +12,7 @@ pub enum Error<SpiError, PinError> {
     BusyTimeout,
 }
 
+/// Errors produced when constructing a framebuffer region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionError {
     /// The region is empty or exceeds the display bounds.
