@@ -1,5 +1,11 @@
 # epd-gdem0097t61
 
+[![CI](https://github.com/Neomium/rt-eink-display-gdem0097/actions/workflows/ci.yml/badge.svg)](https://github.com/Neomium/rt-eink-display-gdem0097/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/epd-gdem0097t61.svg)](https://crates.io/crates/epd-gdem0097t61)
+[![Documentation](https://docs.rs/epd-gdem0097t61/badge.svg)](https://docs.rs/epd-gdem0097t61)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/epd-gdem0097t61.svg)](https://crates.io/crates/epd-gdem0097t61)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+
 A `no_std` Rust driver for the GDEM0097T61 monochrome e-paper display, built on `embedded-hal` 1.0 traits.
 
 The driver is platform-independent and can be used with any microcontroller platform that provides compatible SPI, GPIO, and delay implementations.
