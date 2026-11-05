@@ -139,3 +139,34 @@ Publishing uses crates.io Trusted Publishing, so no long-lived crates.io token i
 3. Update the package version in `Cargo.toml`, then push a matching tag such as `v0.2.0`.
 
 A valid version tag publishes the crate to crates.io and creates a GitHub release containing the packaged `.crate` archive.
+
+
+## Persistent partial-update sessions
+
+The low-level API separates RAM transfers from panel refresh. With the `async`
+feature, await each operation (the synchronous API has the same names):
+
+1. Initialize once with `init()`.
+2. `prepare_full()`, `write_base_frame(frame)`, then `refresh_full()` establish
+   the initial image in both RAM banks (`0x24` and `0x26`).
+3. For subsequent updates, call `prepare_partial()`, write each changed region
+   with `write_region(frame, region)`, then call `refresh_partial()` once.
+4. Once refresh completes, synchronize affected previous-image regions with
+   `write_previous_region(frame, region)`.
+
+The default configuration waits for refresh completion. If
+`wait_after_refresh = false`, explicitly call `wait_until_idle()` before writing
+previous-image RAM, sleeping, or issuing another update. Keep ownership of the
+Display instance throughout the session. Use `sleep()` only when entering a longer
+idle period; reset/reinitialize and rebuild the baseline when waking.
+
+`FrameBuffer::changed_region(previous)` returns a byte-aligned bounding rectangle,
+or None for identical frames. Compare against the last successfully presented image,
+not an image whose transfer failed. After I/O errors, treat RAM synchronization as
+unknown and rebuild the baseline. These low-level methods do not enforce lifecycle
+state; applications/backends must serialize operations and track valid baselines.
+
+Reset and reset recovery now each wait 10 ms, matching the manufacturer's example.
+Register-sequence tests cover batching and both RAM banks in async and sync modes.
+Repeated partial updates without hardware reset, ghosting, mode transitions and
+power consumption still require validation on the physical GDEM0097T61 panel.
