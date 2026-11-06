@@ -398,6 +398,12 @@ fn show_full_writes_the_entire_framebuffer_and_triggers_full_refresh() {
     ];
     let mut parts = mock_parts(&writes, &kinds);
     parts.busy.expect_is_high().times(1).returning(|| Ok(false));
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(crate::driver::REFRESH_START_DELAY_NS))
+        .times(1)
+        .return_const(());
     let mut display = make_display(parts);
 
     display.show_full(&framebuffer).unwrap();
@@ -452,6 +458,12 @@ fn show_full_transfers_the_complete_nonuniform_framebuffer_unchanged() {
 
     parts.busy.expect_is_high().times(1).returning(|| Ok(false));
 
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(crate::driver::REFRESH_START_DELAY_NS))
+        .times(1)
+        .return_const(());
     let mut display = make_display(parts);
 
     display.show_full(&framebuffer).unwrap();
@@ -551,6 +563,12 @@ fn show_partial_writes_only_the_requested_rows_and_bytes() {
     let mut parts = mock_parts(writes, &kinds);
     parts.busy.expect_is_high().times(1).returning(|| Ok(false));
 
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(crate::driver::REFRESH_START_DELAY_NS))
+        .times(1)
+        .return_const(());
     let mut display = make_display(parts);
 
     display.show_partial(&framebuffer, region).unwrap();
@@ -622,6 +640,12 @@ fn show_full_busy_pin_is_polled_until_the_display_becomes_idle() {
         .times(1)
         .return_const(());
 
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(crate::driver::REFRESH_START_DELAY_NS))
+        .times(1)
+        .return_const(());
     let mut display = make_display(parts);
     display.show_full(&framebuffer).unwrap();
 }
@@ -715,6 +739,12 @@ fn show_full_returns_pin_error_when_busy_pin_read_fails() {
         .times(1)
         .returning(|| Err(TestPinError::Read));
 
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(crate::driver::REFRESH_START_DELAY_NS))
+        .times(1)
+        .return_const(());
     let mut display = make_display(parts);
 
     let error = display.show_full(&framebuffer).unwrap_err();
@@ -798,6 +828,12 @@ fn show_partial_reads_bytes_from_the_correct_framebuffer_offsets() {
     ];
     let mut parts = mock_parts(writes, &kinds);
     parts.busy.expect_is_high().times(1).returning(|| Ok(false));
+    parts
+        .delay
+        .expect_delay_ns()
+        .with(eq(crate::driver::REFRESH_START_DELAY_NS))
+        .times(1)
+        .return_const(());
     let mut display = make_display(parts);
 
     display.show_partial(&framebuffer, region).unwrap();
