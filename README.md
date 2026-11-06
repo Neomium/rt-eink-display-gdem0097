@@ -152,27 +152,35 @@ A valid version tag publishes the crate to crates.io and creates a GitHub releas
 The low-level API separates RAM transfers from panel refresh. With the `async`
 feature, await each operation (the synchronous API has the same names):
 
-1. Initialize once with `init()`.
+1. Initialize with `init()`.
 2. `prepare_full()`, `write_base_frame(frame)`, then `refresh_full()` establish
-   the initial image in both RAM banks (`0x24` and `0x26`).
-3. For subsequent updates, call `prepare_partial()`, write each changed region
-   with `write_region(frame, region)`, then call `refresh_partial()` once.
-4. Once refresh completes, synchronize affected previous-image regions with
-   `write_previous_region(frame, region)`.
+   the initial image. After completion call `write_base_frame(frame)` again to
+   synchronize both RAM banks explicitly.
+3. For a partial update, call `prepare_partial()`. This performs hardware and
+   software reset and restores controller configuration before selecting the
+   partial border waveform. RAM retention must not be assumed.
+4. Write the **entire last confirmed image** with `write_previous_region(old,
+   Region::new(0, 0, WIDTH, HEIGHT).unwrap())`, then the complete desired image
+   with `write_frame(new)`. Call `refresh_partial()` once.
+5. After completion, synchronize **both complete banks** using
+   `write_base_frame(new)`, then commit `new` as the application's confirmed image.
 
-The default configuration waits for refresh completion. If
-`wait_after_refresh = false`, explicitly call `wait_until_idle()` before writing
-previous-image RAM, sleeping, or issuing another update. Keep ownership of the
-Display instance throughout the session. Use `sleep()` only when entering a longer
-idle period; reset/reinitialize and rebuild the baseline when waking.
+Both preparation methods reset/reinitialize the controller. Refill both banks
+before activation, even when only a small region changed. This conservative
+sequence retains the partial waveform while increasing SPI traffic.
 
-`FrameBuffer::changed_region(previous)` returns a byte-aligned bounding rectangle,
-or None for identical frames. Compare against the last successfully presented image,
-not an image whose transfer failed. After I/O errors, treat RAM synchronization as
-unknown and rebuild the baseline. These low-level methods do not enforce lifecycle
-state; applications/backends must serialize operations and track valid baselines.
+The default configuration waits for refresh completion. After master activation,
+`wait_until_idle()` first allows 10 ms for BUSY to assert, independently of the
+polling interval, then polls until idle with a timeout. If `wait_after_refresh`
+is false, call `wait_until_idle()` explicitly before synchronizing RAM or issuing
+another operation. This guard also applies to that deferred wait.
 
-Reset and reset recovery now each wait 10 ms, matching the manufacturer's example.
-Register-sequence tests cover batching and both RAM banks in async and sync modes.
-Repeated partial updates without hardware reset, ghosting, mode transitions and
-power consumption still require validation on the physical GDEM0097T61 panel.
+`show_full()` and `show_partial()` remain low-level convenience methods; they do
+not manage previous-image RAM or mode preparation. For alternating full/partial
+updates use the sequence above. After sleep or any I/O error, treat the baseline
+as invalid and rebuild it with a full refresh. Do not commit the desired image
+until refresh and both synchronization transfers have succeeded.
+
+Tests exercise delayed BUSY assertion in async and blocking modes. Optical image
+quality, reset behavior and the conservative 10 ms guard still require validation
+on the physical GDEM0097T61 panel; software tests cannot prove ghosting is fixed.

@@ -19,6 +19,10 @@ pub(crate) const RESET_LOW_TIME_NS: u32 = 10_000_000;
 /// Time allowed after releasing the hardware reset pin.
 pub(crate) const RESET_RECOVERY_TIME_NS: u32 = 10_000_000;
 
+/// Allow BUSY to assert after master activation before accepting an idle level.
+/// This conservative guard is separate from the BUSY polling interval.
+pub(crate) const REFRESH_START_DELAY_NS: u32 = 10_000_000;
+
 /// Display-update control value used for a full refresh.
 const FULL_REFRESH_SEQUENCE: u8 = 0xF7;
 
@@ -56,6 +60,9 @@ pub struct Display<SPI, DC, RST, BUSY, DELAY> {
 
     /// Runtime timing and refresh configuration.
     config: Config,
+
+    /// A triggered refresh still needs its BUSY assertion guard.
+    refresh_pending: bool,
 }
 
 impl<SPI, DC, RST, BUSY, DELAY, PinError> Display<SPI, DC, RST, BUSY, DELAY>
@@ -82,6 +89,7 @@ where
             pin_busy,
             delay,
             config,
+            refresh_pending: false,
         }
     }
 
@@ -372,6 +380,7 @@ where
         self.send_data(&[FULL_REFRESH_SEQUENCE])?;
 
         self.send_command(Command::MasterActivation)?;
+        self.refresh_pending = true;
 
         self.wait_after_refresh_if_configured()
     }
@@ -383,6 +392,7 @@ where
         self.send_data(&[FULL_REFRESH_SEQUENCE]).await?;
 
         self.send_command(Command::MasterActivation).await?;
+        self.refresh_pending = true;
 
         self.wait_after_refresh_if_configured().await
     }
@@ -393,6 +403,7 @@ where
         self.send_command(Command::DisplayUpdateControl2)?;
         self.send_data(&[PARTIAL_REFRESH_CONTROL])?;
         self.send_command(Command::MasterActivation)?;
+        self.refresh_pending = true;
         self.wait_after_refresh_if_configured()
     }
 
@@ -402,6 +413,7 @@ where
         self.send_command(Command::DisplayUpdateControl2).await?;
         self.send_data(&[PARTIAL_REFRESH_CONTROL]).await?;
         self.send_command(Command::MasterActivation).await?;
+        self.refresh_pending = true;
         self.wait_after_refresh_if_configured().await
     }
 
@@ -429,6 +441,10 @@ where
     /// Waits until the display is ready or configured timeout is reached.
     #[cfg(not(feature = "async"))]
     pub fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        if self.refresh_pending {
+            self.delay.delay_ns(REFRESH_START_DELAY_NS);
+            self.refresh_pending = false;
+        }
         let mut elapsed_us = 0u32;
         let poll_interval_us = self.config.busy_poll_interval_us.max(1);
 
@@ -447,6 +463,10 @@ where
     /// Waits until the display is ready or configured timeout is reached.
     #[cfg(feature = "async")]
     pub async fn wait_until_idle(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        if self.refresh_pending {
+            self.delay.delay_ns(REFRESH_START_DELAY_NS).await;
+            self.refresh_pending = false;
+        }
         let mut elapsed_us = 0u32;
         let poll_interval_us = self.config.busy_poll_interval_us.max(1);
         while self.pin_busy.is_high().map_err(Error::Pin)? {
@@ -627,16 +647,25 @@ where
         Ok(())
     }
 
-    /// Selects the border waveform for partial updates without resetting the controller.
+    /// Reinitializes the controller and selects the partial-update border waveform.
+    ///
+    /// Refill both RAM banks after this call: the last confirmed image via
+    /// `write_previous_region` and the complete desired image via `write_frame`.
+    /// Do not rely on RAM or address settings surviving reset.
     #[cfg(not(feature = "async"))]
     pub fn prepare_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.wait_until_idle()?;
+        self.init()?;
         self.send_command(Command::BorderWaveformControl)?;
         self.send_data(&[0x80])
     }
 
-    /// Restores the full-update border waveform without resetting the controller.
+    /// Reinitializes the controller for a full update.
+    /// Rebuild both RAM banks with `write_base_frame` before refreshing.
     #[cfg(not(feature = "async"))]
     pub fn prepare_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.wait_until_idle()?;
+        self.init()?;
         self.send_command(Command::BorderWaveformControl)?;
         self.send_data(&[BORDER_WAVEFORM])
     }
@@ -697,16 +726,25 @@ where
         Ok(())
     }
 
-    /// Selects the border waveform for partial updates without resetting the controller.
+    /// Reinitializes the controller and selects the partial-update border waveform.
+    ///
+    /// Refill both RAM banks after this call: the last confirmed image via
+    /// `write_previous_region` and the complete desired image via `write_frame`.
+    /// Do not rely on RAM or address settings surviving reset.
     #[cfg(feature = "async")]
     pub async fn prepare_partial(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.wait_until_idle().await?;
+        self.init().await?;
         self.send_command(Command::BorderWaveformControl).await?;
         self.send_data(&[0x80]).await
     }
 
-    /// Restores the full-update border waveform without resetting the controller.
+    /// Reinitializes the controller for a full update.
+    /// Rebuild both RAM banks with `write_base_frame` before refreshing.
     #[cfg(feature = "async")]
     pub async fn prepare_full(&mut self) -> Result<(), Error<SPI::Error, PinError>> {
+        self.wait_until_idle().await?;
+        self.init().await?;
         self.send_command(Command::BorderWaveformControl).await?;
         self.send_data(&[BORDER_WAVEFORM]).await
     }
